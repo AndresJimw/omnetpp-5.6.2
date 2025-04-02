@@ -1,0 +1,35 @@
+# Ignorar resultados y temporales
+results/
+*.log
+*.tmp
+
+# Ignorar archivos binarios y compilados
+bin/
+*.exe
+*.o
+*.so
+*.dll
+
+# Ignorar archivos específicos de Windows
+tools/win64/tmp/
+tools/win64/msys2_shell.cmd
+tools/win64/mingw64/x86_64-w64-mingw32/lib/*.a
+tools/win64/msys2.ini
+
+# Ignorar archivos generados por IDEs
+*.class
+*.project
+*.workspace
+.DS_Store
+
+# Ignorar archivos de configuración específicos del usuario
+*.wishname
+.bash_history
+
+# Ignorar carpetas comunes
+out/
+test/
+
+# Ignorar otros archivos temporales
+*~
+*.bak

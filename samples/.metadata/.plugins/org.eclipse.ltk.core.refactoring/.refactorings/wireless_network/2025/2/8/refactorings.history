@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<session version="1.0">
+<refactoring comment="Rename resource &apos;wireless_network/wireless_network01.ned&apos; to &apos;wireless_network1.ned&apos;" description="Rename resource &apos;wireless_network01.ned&apos;" flags="7" id="org.eclipse.ltk.core.refactoring.rename.resource" input="wireless_network01.ned" name="wireless_network1.ned" stamp="1739999407007" updateReferences="true"/>
+</session>

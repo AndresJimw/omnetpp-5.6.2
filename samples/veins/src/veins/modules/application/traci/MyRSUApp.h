@@ -56,6 +56,10 @@ protected:
 
     void handleSelfMsg(cMessage* msg) override;
     void handlePositionUpdate(cObject* obj) override;
+
+private:
+    bool sentMessage = false;
+    int myId = -1;
 };
 
 } // namespace veins

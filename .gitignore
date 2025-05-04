@@ -33,3 +33,15 @@ test/
 # Ignorar otros archivos temporales
 *~
 *.bak
+
+# Ignorar carpetas de pruebas y simulaciones adicionales
+samples/veins_inet/
+samples/veins_inet3/
+samples/veins_catch/
+samples/veins_testsims/
+
+# Ignorar configuración del IDE
+ide/
+
+# Ignorar archivo innecesario de gettext
+/tools/win64/mingw64/share/gettext/javaversion.class

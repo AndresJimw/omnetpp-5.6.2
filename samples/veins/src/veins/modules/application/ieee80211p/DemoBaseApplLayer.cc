@@ -159,7 +159,7 @@ void DemoBaseApplLayer::populateWSM(BaseFrame1609_4* wsm, LAddress::L2Type rcvId
     if (DemoSafetyMessage* bsm = dynamic_cast<DemoSafetyMessage*>(wsm)) {
         bsm->setSenderPos(curPosition);
         bsm->setSenderSpeed(curSpeed);
-        bsm->setPsid(getParentModule()->getIndex());
+        bsm->setPsid(-1);
         bsm->setChannelNumber(static_cast<int>(Channel::cch));
         bsm->addBitLength(beaconLengthBits);
         wsm->setUserPriority(beaconUserPriority);

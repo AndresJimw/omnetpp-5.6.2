@@ -1,8 +1,7 @@
-# ===========================================
-# ARCHIVOS TEMPORALES Y COMPILADOS
-# ===========================================
 
-# Binarios compilados
+# ===========================================
+# BINARIOS Y COMPILADOS
+# ===========================================
 *.exe
 *.o
 *.so
@@ -10,16 +9,14 @@
 *.a
 *.lib
 
-# Archivos de mensajes generados por OMNeT++
+# Archivos generados por OMNeT++
 *_m.cc
 *_m.h
-
-# Archivos de simulación y resultados
+*.ned.bak
 *.sca
 *.vec
 *.vci
 *.elog
-*.raw
 *.out
 *.old
 *.bak
@@ -32,104 +29,94 @@
 *.orig
 .#*
 omnetpp.ini~
+*.status
 
-# Directorios de salida de compilación
+# ===========================================
+# CARPETAS DE COMPILACIÓN
+# ===========================================
 out/
 bin/
-results/
 build/
 debug/
 release/
+results/
 test/
 
-# Ignorar archivos temporales
-*~
-*.bak
-
 # ===========================================
-# IDEs / OMNeT++ / Eclipse / CDT
+# IDEs / ECLIPSE / CDT
 # ===========================================
-
-.ide/
-.ide_workspace/
 *.project
 *.cproject
 *.settings/
 .metadata/
-samples/.metadata/
-samples/*/.metadata/
+.ide/
+.ide_workspace/
 *.pdom
-*.markers
-*.markers.snap
-*.syncinfo.snap
+*.markers*
 *.snap
 *.tree
 *.index
 *.history
 
-# Archivos específicos de OMNeT++
-*.ned.bak
-
 # ===========================================
 # SISTEMA OPERATIVO
 # ===========================================
-
-# Windows
-Thumbs.db
-ehthumbs.db
-desktop.ini
-
-# macOS
 .DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
 .AppleDouble
 .LSOverride
 
 # ===========================================
-# PYTHON (MSYS2 incluye Python)
+# PYTHON / VIRTUAL ENVS
 # ===========================================
-
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Python virtual envs
 venv/
 env/
 ENV/
 
 # ===========================================
-# ARCHIVOS LOCALES / CONFIGURACIÓN DE USUARIO
+# CONFIGS LOCALES / USUARIO
 # ===========================================
-
-*.wishname
-.bash_history
-.ms_history
 *.user
 *.suo
 *.ncb
+*.wishname
+.bash_history
+.ms_history
 
 # ===========================================
-# MSYS2 / TOOLS
+# MSYS2 / TOOLS TEMPORALES
 # ===========================================
-
 tools/win64/tmp/
 tools/win64/msys2_shell.cmd
 tools/win64/msys2.ini
 tools/win64/mingw64/x86_64-w64-mingw32/lib/*.a
 tools/win64/mingw64/lib/**/*.pyc
 tools/win64/mingw64/lib/**/__pycache__/
+/tools/win64/mingw64/share/gettext/javaversion.class
 
 # ===========================================
-# OPCIONAL: Ignorar subproyectos temporales de Veins
+# SUBPROYECTOS / EXAMPLES QUE NO MODIFICAS
 # ===========================================
-
 samples/veins_inet/
 samples/veins_inet3/
 samples/veins_catch/
 samples/veins_testsims/
 
-# Ignorar configuración del IDE
-ide/
+# ===========================================
+# INCLUSIONES EXPLÍCITAS (NO IGNORAR)
+# ===========================================
+!setenv
+!configure
+!mingwenv.cmd
+!README.md
 
-# Ignorar archivo innecesario de gettext
-/tools/win64/mingw64/share/gettext/javaversion.class
+# ===========================================
+# OPCIONAL: ARCHIVOS TEMPORALES EDITOR
+# ===========================================
+*~
+*.bak

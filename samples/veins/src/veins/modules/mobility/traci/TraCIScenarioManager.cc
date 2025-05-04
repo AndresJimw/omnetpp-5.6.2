@@ -21,6 +21,7 @@
 //
 
 #include <fstream>
+#include <iostream>
 #include <vector>
 #include <algorithm>
 #include <stdexcept>
@@ -49,6 +50,11 @@ const simsignal_t TraCIScenarioManager::traciInitializedSignal = registerSignal(
 const simsignal_t TraCIScenarioManager::traciModulePreInitSignal = registerSignal("org_car2x_veins_modules_mobility_traciModulePreInit");
 const simsignal_t TraCIScenarioManager::traciModuleAddedSignal = registerSignal("org_car2x_veins_modules_mobility_traciModuleAdded");
 const simsignal_t TraCIScenarioManager::traciModuleRemovedSignal = registerSignal("org_car2x_veins_modules_mobility_traciModuleRemoved");
+const simsignal_t TraCIScenarioManager::traciModuleUpdatedSignal = registerSignal("org_car2x_veins_modules_mobility_traciModuleUpdated");
+const simsignal_t TraCIScenarioManager::traciTrafficLightPreInitSignal = registerSignal("org_car2x_veins_modules_mobility_traciTrafficLightPreInit");
+const simsignal_t TraCIScenarioManager::traciTrafficLightAddedSignal = registerSignal("org_car2x_veins_modules_mobility_traciTrafficLightAdded");
+const simsignal_t TraCIScenarioManager::traciTrafficLightRemovedSignal = registerSignal("org_car2x_veins_modules_mobility_traciTrafficLightRemoved");
+const simsignal_t TraCIScenarioManager::traciTrafficLightUpdatedSignal = registerSignal("org_car2x_veins_modules_mobility_traciTrafficLightUpdated");
 const simsignal_t TraCIScenarioManager::traciTimestepBeginSignal = registerSignal("org_car2x_veins_modules_mobility_traciTimestepBegin");
 const simsignal_t TraCIScenarioManager::traciTimestepEndSignal = registerSignal("org_car2x_veins_modules_mobility_traciTimestepEnd");
 
@@ -257,6 +263,8 @@ void TraCIScenarioManager::initialize(int stage)
     parseModuleTypes();
     penetrationRate = par("penetrationRate").doubleValue();
     ignoreGuiCommands = par("ignoreGuiCommands");
+    order = par("order");
+    ignoreUnknownSubscriptionResults = par("ignoreUnknownSubscriptionResults");
     host = par("host").stdstringValue();
     port = getPortNumber();
     if (port == -1) {
@@ -300,6 +308,9 @@ void TraCIScenarioManager::init_traci()
         auto apiVersion = commandInterface->getVersion();
         EV_DEBUG << "TraCI server \"" << apiVersion.second << "\" reports API version " << apiVersion.first << endl;
         commandInterface->setApiVersion(apiVersion.first);
+        if (order != -1) {
+            commandInterface->setOrder(order);
+        }
     }
 
     {
@@ -350,7 +361,7 @@ void TraCIScenarioManager::init_traci()
         ASSERT(buf.eof());
     }
 
-    if (!trafficLightModuleType.empty() && !trafficLightModuleIds.empty()) {
+    if (!trafficLightModuleType.empty()) {
         // initialize traffic lights
         cModule* parentmod = getParentModule();
         if (!parentmod) {
@@ -367,7 +378,7 @@ void TraCIScenarioManager::init_traci()
         int cnt = 0;
         for (std::list<std::string>::iterator i = trafficLightIds.begin(); i != trafficLightIds.end(); ++i) {
             std::string tlId = *i;
-            if (std::find(trafficLightModuleIds.begin(), trafficLightModuleIds.end(), tlId) == trafficLightModuleIds.end()) {
+            if ((!trafficLightModuleIds.empty()) && (std::find(trafficLightModuleIds.begin(), trafficLightModuleIds.end(), tlId) == trafficLightModuleIds.end())) {
                 continue; // filter only selected elements
             }
 
@@ -394,31 +405,39 @@ void TraCIScenarioManager::init_traci()
             BaseMobility* mobiSubmodule = check_and_cast<BaseMobility*>(module->getSubmodule("mobility"));
             mobiSubmodule->setStartPosition(position);
 
+            emit(traciTrafficLightPreInitSignal, module);
+
             module->callInitialize();
             trafficLights[tlId] = module;
+
+            emit(traciTrafficLightAddedSignal, module);
+
             subscribeToTrafficLightVariables(tlId); // subscribe after module is in trafficLights
             cnt++;
         }
     }
 
-    ObstacleControl* obstacles = ObstacleControlAccess().getIfExists();
-    if (obstacles) {
-        {
-            // get list of polygons
-            std::list<std::string> ids = commandInterface->getPolygonIds();
-            for (std::list<std::string>::iterator i = ids.begin(); i != ids.end(); ++i) {
-                std::string id = *i;
-                std::string typeId = commandInterface->polygon(id).getTypeId();
-                if (!obstacles->isTypeSupported(typeId)) continue;
-                std::list<Coord> coords = commandInterface->polygon(id).getShape();
-                std::vector<Coord> shape;
-                std::copy(coords.begin(), coords.end(), std::back_inserter(shape));
-                for (auto p : shape) {
-                    if ((p.x < 0) || (p.y < 0) || (p.x > world->getPgs()->x) || (p.y > world->getPgs()->y)) {
-                        EV_WARN << "WARNING: Playground (" << world->getPgs()->x << ", " << world->getPgs()->y << ") will not fit radio obstacle at (" << p.x << ", " << p.y << ")" << endl;
+    std::vector<ObstacleControl*> obstaclesModules = FindModule<ObstacleControl*>::findSubModules(getSimulation()->getSystemModule());
+
+    for (ObstacleControl* obstacles : obstaclesModules) {
+        if (obstacles) {
+            {
+                // get list of polygons
+                std::list<std::string> ids = commandInterface->getPolygonIds();
+                for (std::list<std::string>::iterator i = ids.begin(); i != ids.end(); ++i) {
+                    std::string id = *i;
+                    std::string typeId = commandInterface->polygon(id).getTypeId();
+                    if (!obstacles->isTypeSupported(typeId)) continue;
+                    std::list<Coord> coords = commandInterface->polygon(id).getShape();
+                    std::vector<Coord> shape;
+                    std::copy(coords.begin(), coords.end(), std::back_inserter(shape));
+                    for (auto p : shape) {
+                        if ((p.x < 0) || (p.y < 0) || (p.x > world->getPgs()->x) || (p.y > world->getPgs()->y)) {
+                            EV_WARN << "WARNING: Playground (" << world->getPgs()->x << ", " << world->getPgs()->y << ") will not fit radio obstacle at (" << p.x << ", " << p.y << ")" << endl;
+                        }
                     }
+                    obstacles->addFromTypeAndShape(id, typeId, shape);
                 }
-                obstacles->addFromTypeAndShape(id, typeId, shape);
             }
         }
     }
@@ -755,6 +774,8 @@ void TraCIScenarioManager::processTrafficLightSubscription(std::string objectId,
             break;
         }
     }
+
+    emit(traciTrafficLightUpdatedSignal, trafficLights[objectId]);
 }
 
 void TraCIScenarioManager::processSimSubscription(std::string objectId, TraCIBuffer& buf)
@@ -1056,6 +1077,39 @@ void TraCIScenarioManager::processVehicleSubscription(std::string objectId, TraC
             buf >> width;
             numRead++;
         }
+        else if (ignoreUnknownSubscriptionResults) {
+            static bool haveWarned = false;
+            uint8_t varType;
+            buf >> varType;
+            if (!haveWarned) {
+                EV_WARN << "Warning: Got a variable that I don't care about (variable " << variable1_resp << ", type " << varType << "). Trying my best to ignore it. This warning will not be repeated." << std::endl;
+                haveWarned = true;
+            }
+            if (varType == TYPE_STRING) {
+                std::string foo;
+                buf >> foo;
+            }
+            else if (varType == TYPE_DOUBLE) {
+                double foo;
+                buf >> foo;
+            }
+            else if (varType == TYPE_COLOR) {
+                TraCIColor res(0, 0, 0, 0);
+                buf >> res.red;
+                buf >> res.green;
+                buf >> res.blue;
+                buf >> res.alpha;
+            }
+            else if (varType == POSITION_3D) {
+                double x, y, z;
+                buf >> x;
+                buf >> y;
+                buf >> z;
+            }
+            else {
+                throw cRuntimeError("Received unhandled (and non-ignorable) vehicle subscription result");
+            }
+        }
         else {
             throw cRuntimeError("Received unhandled vehicle subscription result");
         }
@@ -1133,6 +1187,7 @@ void TraCIScenarioManager::processVehicleSubscription(std::string objectId, TraC
         // module existed - update position
         EV_DEBUG << "module " << objectId << " moving to " << p.x << "," << p.y << endl;
         updateModulePosition(mod, p, edge, speed, heading, VehicleSignalSet(signals));
+        emit(traciModuleUpdatedSignal, mod);
     }
 }
 
@@ -1147,12 +1202,15 @@ void TraCIScenarioManager::processSubcriptionResult(TraCIBuffer& buf)
     std::string objectId_resp;
     buf >> objectId_resp;
 
-    if (commandId_resp == RESPONSE_SUBSCRIBE_VEHICLE_VARIABLE)
+    if (commandId_resp == RESPONSE_SUBSCRIBE_VEHICLE_VARIABLE) {
         processVehicleSubscription(objectId_resp, buf);
-    else if (commandId_resp == RESPONSE_SUBSCRIBE_SIM_VARIABLE)
+    }
+    else if (commandId_resp == RESPONSE_SUBSCRIBE_SIM_VARIABLE) {
         processSimSubscription(objectId_resp, buf);
-    else if (commandId_resp == RESPONSE_SUBSCRIBE_TL_VARIABLE)
+    }
+    else if (commandId_resp == RESPONSE_SUBSCRIBE_TL_VARIABLE) {
         processTrafficLightSubscription(objectId_resp, buf);
+    }
     else {
         throw cRuntimeError("Received unhandled subscription result");
     }

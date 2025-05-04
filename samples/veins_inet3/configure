@@ -64,7 +64,7 @@ if args:
 
 
 # Start with default flags
-makemake_flags = ['-f', '--deep', '--no-deep-includes', '--make-so', '-I', '.', '-o', 'veins_inet', '-O', 'out', '-p', 'VEINS_INET']
+makemake_flags = ['-f', '--deep', '--make-so', '-I', '.', '-o', 'veins_inet', '-O', 'out', '-p', 'VEINS_INET']
 run_libs = [os.path.join('src', 'veins_inet')]
 run_neds = [os.path.join('src', 'veins_inet')]
 run_excs = []
@@ -74,7 +74,7 @@ run_imgs = [os.path.join('images')]
 # Add flags for Veins
 if options.veins:
     fname = os.path.join(options.veins, 'print-veins-version')
-    expect_version = [b'5.2']
+    expect_version = [b'5.3.1']
     try:
         info('Running "%s" to determine Veins version.' % fname)
         version = subprocess.check_output(['env', fname]).strip()
@@ -103,7 +103,7 @@ if options.veins:
 
 # Add flags for INET
 if options.inet:
-    expect_version = [b'3.6.5', b'3.6.6', b'3.6.7', b'3.6.8', b'3.7.0', b'3.7.1', b'3.8.1']
+    expect_version = [b'3.6.5', b'3.6.6', b'3.6.7', b'3.6.8', b'3.7.0', b'3.7.1', b'3.8.1', b'3.8.2']
     try:
         fname1 = os.path.join(options.inet, 'Version')
         info('Reading "%s" to determine INET version.' % fname1)

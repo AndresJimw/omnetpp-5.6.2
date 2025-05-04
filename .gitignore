@@ -1,40 +1,128 @@
-# Ignorar resultados y temporales
-results/
-*.log
-*.tmp
+# ===========================================
+# ARCHIVOS TEMPORALES Y COMPILADOS
+# ===========================================
 
-# Ignorar archivos binarios y compilados
-bin/
+# Binarios compilados
 *.exe
 *.o
 *.so
 *.dll
+*.a
+*.lib
 
-# Ignorar archivos específicos de Windows
-tools/win64/tmp/
-tools/win64/msys2_shell.cmd
-tools/win64/mingw64/x86_64-w64-mingw32/lib/*.a
-tools/win64/msys2.ini
+# Archivos de mensajes generados por OMNeT++
+*_m.cc
+*_m.h
 
-# Ignorar archivos generados por IDEs
-*.class
-*.project
-*.workspace
-.DS_Store
+# Archivos de simulación y resultados
+*.sca
+*.vec
+*.vci
+*.elog
+*.raw
+*.out
+*.old
+*.bak
+*.tmp
+*.log
+*.swp
+*.swo
+*.swn
+*.d
+*.orig
+.#*
+omnetpp.ini~
 
-# Ignorar archivos de configuración específicos del usuario
-*.wishname
-.bash_history
-
-# Ignorar carpetas comunes
+# Directorios de salida de compilación
 out/
+bin/
+results/
+build/
+debug/
+release/
 test/
 
-# Ignorar otros archivos temporales
+# Ignorar archivos temporales
 *~
 *.bak
 
-# Ignorar carpetas de pruebas y simulaciones adicionales
+# ===========================================
+# IDEs / OMNeT++ / Eclipse / CDT
+# ===========================================
+
+.ide/
+.ide_workspace/
+*.project
+*.cproject
+*.settings/
+.metadata/
+samples/.metadata/
+samples/*/.metadata/
+*.pdom
+*.markers
+*.markers.snap
+*.syncinfo.snap
+*.snap
+*.tree
+*.index
+*.history
+
+# Archivos específicos de OMNeT++
+*.ned.bak
+
+# ===========================================
+# SISTEMA OPERATIVO
+# ===========================================
+
+# Windows
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ===========================================
+# PYTHON (MSYS2 incluye Python)
+# ===========================================
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python virtual envs
+venv/
+env/
+ENV/
+
+# ===========================================
+# ARCHIVOS LOCALES / CONFIGURACIÓN DE USUARIO
+# ===========================================
+
+*.wishname
+.bash_history
+.ms_history
+*.user
+*.suo
+*.ncb
+
+# ===========================================
+# MSYS2 / TOOLS
+# ===========================================
+
+tools/win64/tmp/
+tools/win64/msys2_shell.cmd
+tools/win64/msys2.ini
+tools/win64/mingw64/x86_64-w64-mingw32/lib/*.a
+tools/win64/mingw64/lib/**/*.pyc
+tools/win64/mingw64/lib/**/__pycache__/
+
+# ===========================================
+# OPCIONAL: Ignorar subproyectos temporales de Veins
+# ===========================================
+
 samples/veins_inet/
 samples/veins_inet3/
 samples/veins_catch/

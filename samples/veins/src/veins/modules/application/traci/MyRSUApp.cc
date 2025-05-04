@@ -21,7 +21,6 @@
 //
 
 #include <veins/modules/application/traci/MyRSUApp.h>
-#include <veins/modules/application/traci/TraCIDemo11pMessage_m.h>
 
 using namespace veins;
 
@@ -33,7 +32,6 @@ void MyRSUApp::initialize(int stage)
     if (stage == 0) {
         // Initializing members and pointers of your application goes here
         EV << "Initializing " << par("appName").stringValue() << std::endl;
-        sentMessage = false;
     }
     else if (stage == 1) {
         // Initializing members that require initialized other modules goes here
@@ -69,19 +67,10 @@ void MyRSUApp::onBSM(DemoSafetyMessage* bsm)
     listBeacon.PrintBeacons();
 }
 
-void MyRSUApp::onWSM(BaseFrame1609_4* frame)
+void MyRSUApp::onWSM(BaseFrame1609_4* wsm)
 {
     // Your application has received a data message from another car or RSU
     // code for handling the message goes here, see TraciDemo11p.cc for examples
-    TraCIDemo11pMessage* wsm = check_and_cast<TraCIDemo11pMessage*>(frame);
-    findHost()->getDisplayString().setTagArg("1", 1, "green");
-
-    if (!sentMessage) {
-        sentMessage = true;
-        wsm->setSenderAddress(myId);
-        wsm->setSerial(3);
-        scheduleAt(simTime()+uniform(0.01,0.2), wsm->dup());
-    }
 }
 
 void MyRSUApp::onWSA(DemoServiceAdvertisment* wsa)

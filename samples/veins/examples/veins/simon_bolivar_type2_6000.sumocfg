@@ -1,0 +1,14 @@
+<configuration>
+    <input>
+        <net-file value="simon_bolivar.net.xml"/>
+        <route-files value="routes_type2_6000.rou.xml"/>
+        <additional-files value="roi_simon_bolivar.add.xml,vehicles.add.xml"/>
+    </input>
+    <time>
+        <begin value="0"/>
+        <end value="3600"/>
+    </time>
+    <output>
+        <tripinfo-output value="tripinfo_type2_6000.xml"/>
+    </output>
+</configuration>

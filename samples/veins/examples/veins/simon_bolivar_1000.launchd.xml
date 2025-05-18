@@ -1,0 +1,7 @@
+<launch>
+    <copy file="simon_bolivar.net.xml" />
+    <copy file="routes_type2_1000.rou.xml" />
+    <copy file="roi_simon_bolivar.add.xml" />
+    <copy file="vehicles.add.xml" />
+    <copy file="simon_bolivar_type2_1000.sumocfg" type="config" />
+</launch>

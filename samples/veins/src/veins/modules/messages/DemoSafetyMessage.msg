@@ -27,6 +27,11 @@ import veins.base.utils.SimpleAddress;
 namespace veins;
 
 packet DemoSafetyMessage extends BaseFrame1609_4 {
-    Coord senderPos;
+    Coord senderPos;         // Global GPS Position
     Coord senderSpeed;
+    int beaconId;
+    double heading;          // Dirección de movimiento en grados
+    int neighborCount;       // Número de vecinos inmediatos
+    double cbr;              // Channel Busy Ratio [0, 1]
+    int messageList[];       // Lista de IDs de mensajes almacenados por el nodo 
 }

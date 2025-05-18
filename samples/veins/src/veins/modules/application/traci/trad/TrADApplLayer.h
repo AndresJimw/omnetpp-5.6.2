@@ -57,6 +57,9 @@ protected:
     /** @brief handle self messages */
     void handleSelfMsg(cMessage* msg) override;
 
+    /** @brief Clasifica los vecinos actuales en clusters direccionales usando ángulo vectorial */
+    std::vector<std::vector<LAddress::L2Type>> classifyDirectionalClusters();
+
     /** @brief sets all the necessary fields in the WSM, BSM, or WSA. */
     virtual void populateWSM(BaseFrame1609_4* wsm, LAddress::L2Type rcvId = LAddress::L2BROADCAST(), int serial = 0);
 
@@ -64,7 +67,10 @@ protected:
     virtual void onWSM(BaseFrame1609_4* wsm){};
 
     /** @brief this function is called upon receiving a DemoSafetyMessage, also referred to as a beacon  */
-    virtual void onBSM(DemoSafetyMessage* bsm){};
+    virtual void onBSM(DemoSafetyMessage* bsm);
+
+    /** @brief Elimina beacons de vecinos que han expirado */
+    void purgeOldNeighbors();
 
     /** @brief this function is called upon receiving a DemoServiceAdvertisement */
     virtual void onWSA(DemoServiceAdvertisment* wsa){};
@@ -160,6 +166,9 @@ protected:
 
     /* Header length in bits for all outgoing messages (used in populateWSM) */
     uint32_t headerLength;
+
+    std::map<LAddress::L2Type, DemoSafetyMessage*> neighborTable;
+    simtime_t neighborTimeout = 1.5; // tiempo máximo antes de eliminar un vecino (paper: 1.5s)
 
     /* messages for periodic events such as beacon and WSA transmissions */
     cMessage* sendBeaconEvt;

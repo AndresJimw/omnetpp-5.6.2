@@ -1,4 +1,7 @@
 #include "veins/modules/application/traci/trad/TrADApplLayer.h"
+#include <vector>
+
+#define CLUSTER_ANGLE_THRESHOLD 10  // en grados
 
 using namespace veins;
 
@@ -135,8 +138,29 @@ void TrADApplLayer::populateWSM(BaseFrame1609_4* wsm, LAddress::L2Type rcvId, in
     wsm->setBitLength(headerLength);
 
     if (DemoSafetyMessage* bsm = dynamic_cast<DemoSafetyMessage*>(wsm)) {
+        // Posición y velocidad actual
         bsm->setSenderPos(curPosition);
         bsm->setSenderSpeed(curSpeed);
+
+        // ID único del beacon (puede ser simplemente un contador local por ahora)
+        static int beaconCounter = 0;
+        bsm->setBeaconId(beaconCounter++);
+
+        // Dirección en grados (heading)
+        double heading = atan2(curSpeed.y, curSpeed.x) * 180.0 / M_PI;
+        if (heading < 0) heading += 360;
+        bsm->setHeading(heading);
+
+        // Número de vecinos (provisional: se implementará más adelante con recepción de beacons)
+        bsm->setNeighborCount(0);
+
+        // Channel Busy Ratio (provisional: igual a 0.0, se calcula más adelante)
+        bsm->setCbr(0.0);
+
+        // Lista de mensajes ya recibidos (provisional: vacía por ahora)
+        bsm->setMessageListArraySize(0);
+
+        // Otros parámetros estándar
         bsm->setPsid(-1);
         bsm->setChannelNumber(static_cast<int>(Channel::cch));
         bsm->addBitLength(beaconLengthBits);
@@ -207,8 +231,22 @@ void TrADApplLayer::handleSelfMsg(cMessage* msg)
 {
     switch (msg->getKind()) {
     case SEND_BEACON_EVT: {
+        purgeOldNeighbors();  // limpiar vecinos antes de generar beacon nuevo
         DemoSafetyMessage* bsm = new DemoSafetyMessage();
         populateWSM(bsm);
+
+        // Prueba de clasificación direccional
+        auto clusters = classifyDirectionalClusters();
+        EV_INFO << "Numero de clusters direccionales: " << clusters.size() << endl;
+
+        for (size_t i = 0; i < clusters.size(); ++i) {
+            EV_INFO << "  Sector " << i << " contiene " << clusters[i].size() << " nodos: ";
+            for (LAddress::L2Type id : clusters[i]) {
+                EV_INFO << id << " ";
+            }
+            EV_INFO << endl;
+        }
+
         sendDown(bsm);
         scheduleAt(simTime() + beaconInterval, sendBeaconEvt);
         break;
@@ -294,5 +332,72 @@ void TrADApplLayer::checkAndTrackPacket(cMessage* msg)
         generatedWSMs++;
     }
 }
+
+void TrADApplLayer::onBSM(DemoSafetyMessage* bsm) {
+    LAddress::L2Type senderId = bsm->getSenderModuleId();
+
+    // Guardar o reemplazar beacon del vecino
+    if (neighborTable.find(senderId) != neighborTable.end()) {
+        delete neighborTable[senderId];  // borrar beacon viejo
+    }
+    neighborTable[senderId] = bsm->dup();  // guardar copia nueva con tiempo actual
+
+    EV_INFO << "[TrAD] Nodo " << myId
+            << " recibio beacon de " << senderId
+            << " en t=" << simTime()
+            << " | Total vecinos: " << neighborTable.size() << endl;
+
+}
+
+void TrADApplLayer::purgeOldNeighbors() {
+    simtime_t now = simTime();
+    std::vector<LAddress::L2Type> toDelete;
+
+    for (const auto& entry : neighborTable) {
+        DemoSafetyMessage* bsm = entry.second;
+        if (now - bsm->getTimestamp() > neighborTimeout) {
+            toDelete.push_back(entry.first);
+        }
+    }
+
+    for (LAddress::L2Type id : toDelete) {
+        delete neighborTable[id];
+        neighborTable.erase(id);
+    }
+}
+
+std::vector<std::vector<LAddress::L2Type>> TrADApplLayer::classifyDirectionalClusters() {
+    const int NUM_SECTORS = 8; // Agrupar los vecinos por sectores angulares (8 para mayor precisión)
+    std::vector<std::vector<LAddress::L2Type>> clusters(NUM_SECTORS);
+
+    double selfHeading = atan2(curSpeed.y, curSpeed.x) * 180.0 / M_PI;
+    if (selfHeading < 0) selfHeading += 360;
+
+    for (const auto& entry : neighborTable) {
+        LAddress::L2Type neighborId = entry.first;
+        DemoSafetyMessage* bsm = entry.second;
+        Coord neighborPos = bsm->getSenderPos();
+
+        // Vector desde este nodo al vecino
+        double dx = neighborPos.x - curPosition.x;
+        double dy = neighborPos.y - curPosition.y;
+
+        // Ángulo hacia el vecino
+        double angleToNeighbor = atan2(dy, dx) * 180.0 / M_PI;
+        if (angleToNeighbor < 0) angleToNeighbor += 360;
+
+        // Diferencia relativa de ángulo con respecto a selfHeading
+        double relativeAngle = angleToNeighbor - selfHeading;
+        if (relativeAngle < 0) relativeAngle += 360;
+
+        // Sector direccional
+        int sector = int((relativeAngle / 360.0) * NUM_SECTORS) % NUM_SECTORS;
+        clusters[sector].push_back(neighborId);
+    }
+
+    return clusters;
+}
+
+
 
 Define_Module(TrADApplLayer);

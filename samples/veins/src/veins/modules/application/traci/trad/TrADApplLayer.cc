@@ -232,6 +232,7 @@ void TrADApplLayer::handleSelfMsg(cMessage* msg)
     switch (msg->getKind()) {
     case SEND_BEACON_EVT: {
         purgeOldNeighbors();  // limpiar vecinos antes de generar beacon nuevo
+
         DemoSafetyMessage* bsm = new DemoSafetyMessage();
         populateWSM(bsm);
 
@@ -367,32 +368,48 @@ void TrADApplLayer::purgeOldNeighbors() {
 }
 
 std::vector<std::vector<LAddress::L2Type>> TrADApplLayer::classifyDirectionalClusters() {
-    const int NUM_SECTORS = 8; // Agrupar los vecinos por sectores angulares (8 para mayor precisión)
-    std::vector<std::vector<LAddress::L2Type>> clusters(NUM_SECTORS);
+    std::vector<std::vector<LAddress::L2Type>> clusters;
 
-    double selfHeading = atan2(curSpeed.y, curSpeed.x) * 180.0 / M_PI;
-    if (selfHeading < 0) selfHeading += 360;
+    // Copia de la tabla de vecinos para clasificación
+    std::map<LAddress::L2Type, DemoSafetyMessage*> remainingNeighbors = neighborTable;
 
-    for (const auto& entry : neighborTable) {
-        LAddress::L2Type neighborId = entry.first;
-        DemoSafetyMessage* bsm = entry.second;
-        Coord neighborPos = bsm->getSenderPos();
+    while (!remainingNeighbors.empty()) {
+        // Elegimos el primer vecino para iniciar un nuevo cluster
+        auto it = remainingNeighbors.begin();
+        LAddress::L2Type refId = it->first;
+        Coord refPos = it->second->getSenderPos();
+        Coord vecRef = refPos - curPosition;
 
-        // Vector desde este nodo al vecino
-        double dx = neighborPos.x - curPosition.x;
-        double dy = neighborPos.y - curPosition.y;
+        std::vector<LAddress::L2Type> currentCluster;
+        currentCluster.push_back(refId);
+        remainingNeighbors.erase(it);
 
-        // Ángulo hacia el vecino
-        double angleToNeighbor = atan2(dy, dx) * 180.0 / M_PI;
-        if (angleToNeighbor < 0) angleToNeighbor += 360;
+        // Iteramos sobre los demás vecinos
+        for (auto it2 = remainingNeighbors.begin(); it2 != remainingNeighbors.end(); ) {
+            Coord pos = it2->second->getSenderPos();
+            Coord vec = pos - curPosition;
 
-        // Diferencia relativa de ángulo con respecto a selfHeading
-        double relativeAngle = angleToNeighbor - selfHeading;
-        if (relativeAngle < 0) relativeAngle += 360;
+            // Calculamos ángulo entre ref y actual
+            double angle = acos((vecRef * vec) / (vecRef.length() * vec.length())) * (180.0 / M_PI);
 
-        // Sector direccional
-        int sector = int((relativeAngle / 360.0) * NUM_SECTORS) % NUM_SECTORS;
-        clusters[sector].push_back(neighborId);
+            if (angle < CLUSTER_ANGLE_THRESHOLD) {
+                currentCluster.push_back(it2->first);
+                it2 = remainingNeighbors.erase(it2);
+            } else {
+                ++it2;
+            }
+        }
+
+        clusters.push_back(currentCluster);
+    }
+
+    // Debug
+    EV_INFO << "[TrAD] Nodo " << myId << " clasifico " << clusters.size() << " clusters direccionales" << endl;
+    int sector = 0;
+    for (auto& cluster : clusters) {
+        EV_INFO << "  Sector " << sector++ << " contiene " << cluster.size() << " nodos: ";
+        for (auto id : cluster) EV_INFO << id << " ";
+        EV_INFO << endl;
     }
 
     return clusters;

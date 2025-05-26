@@ -169,24 +169,23 @@ void TrADApplLayer::populateWSM(BaseFrame1609_4* wsm, LAddress::L2Type rcvId, in
             bsm->setPriorityList(i, priorityList[i]);
         }
 
-        // Selección de SCF-agents por cluster
+        // Selección de SCF-agents por cluster (coordinator y breaker)
         std::vector<LAddress::L2Type> scfAgents;
         for (const auto& cluster : clusters) {
             auto pair = selectSCFAgents(cluster);
-            if (pair.first != -1) scfAgents.push_back(pair.first);  // coordinator
+            if (pair.first != -1) scfAgents.push_back(pair.first);   // coordinator
             if (pair.second != -1) scfAgents.push_back(pair.second); // breaker
         }
 
-        // Guarda lista de SCF-agents en el beacon
+        // Guardar lista de SCF-agents en el beacon
         bsm->setScfAgentsArraySize(scfAgents.size());
         for (size_t i = 0; i < scfAgents.size(); ++i) {
             bsm->setScfAgents(i, scfAgents[i]);
         }
 
-        bsm->setPriorityListArraySize(priorityList.size());
-        for (size_t i = 0; i < priorityList.size(); ++i) {
-            bsm->setPriorityList(i, priorityList[i]);
-        }
+        // Debug para SCF-agents
+        EV_INFO << "[TrAD] Nodo " << myId << " incluyo " << scfAgents.size()
+                << " SCF-agents en beaconId " << bsm->getBeaconId() << "\n";
 
         // Lista de mensajes ya conocidos por este nodo
         bsm->setMessageListArraySize(receivedMessageIds.size());
@@ -630,5 +629,43 @@ std::pair<LAddress::L2Type, LAddress::L2Type> TrADApplLayer::selectSCFAgents(con
     return {coordinator, breaker};
 }
 
+std::map<LAddress::L2Type, double> TrADApplLayer::calculateUSCF(const std::vector<LAddress::L2Type>& scfCandidates) {
+    std::map<LAddress::L2Type, double> uscfMap;
+
+    // Normalizacion: maximo 25 vecinos
+    double N = std::min(static_cast<double>(neighborTable.size()) / 25.0, 1.0);
+
+    for (const auto& nid : scfCandidates) {
+        DemoSafetyMessage* bsm = neighborTable[nid];
+        if (!bsm) continue;
+
+        // Distancia al nodo candidato
+        double distance = curPosition.distance(bsm->getSenderPos());
+        double D = std::min(distance / 366.0, 1.0); // 366 m es el radio maximo segun paper
+
+        // Angulo relativo al emisor original
+        Coord vecSelf = curSpeed;
+        Coord vecToCandidate = bsm->getSenderPos() - curPosition;
+
+        double angle = acos((vecSelf * vecToCandidate) / (vecSelf.length() * vecToCandidate.length())) * (180.0 / M_PI);
+        double A = std::min(angle / 180.0, 1.0); // Normalizado a [0,1]
+
+        // Congestion reportada por el candidato
+        double CBR = bsm->getCbr();
+
+        double wCBR;
+        if (CBR < 0.6)
+            wCBR = 1.0;
+        else if (CBR < 0.8)
+            wCBR = 1.0 - CBR;
+        else
+            wCBR = 0.001;
+
+        double uscf = wCBR * (N + D + A) / 3.0;
+        uscfMap[nid] = uscf;
+    }
+
+    return uscfMap;
+}
 
 Define_Module(TrADApplLayer);

@@ -33,7 +33,7 @@ simple TrADApplLayer like IBaseApplLayer
         double gpsDriftSigma = default(2.5m); // Desviación estándar del error GPS
         bool enableGpsDrift = default(true);  // Activar/desactivar error GPS
         bool isSourceNode = default(false);
-        double initialDataDelay @unit(s) = default(1s);  // Tiempo de inicio para nodos fuente
+        double initialDataDelay @unit(s) = default(1s); // delay antes del primer mensaje de datos si es nodo origen
 
     gates:
         input lowerLayerIn; // from mac layer

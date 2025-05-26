@@ -9,6 +9,7 @@
 
 static std::map<int, std::set<LAddress::L2Type>> pdrReceptionMap;
 static int globalNodeCount = 0;
+static std::map<int, simtime_t> beaconSentTimeMap;  // tiempo de emisión por beaconId
 
 using namespace veins;
 
@@ -166,7 +167,7 @@ void TrADApplLayer::populateWSM(BaseFrame1609_4* wsm, LAddress::L2Type rcvId, in
 
         // ID unico del beacon (contador local)
         static int beaconCounter = 0;
-        bsm->setBeaconId(beaconCounter++);
+        bsm->setBeaconId(beaconCounter++ + 10000 * myId);  // myId evita colisiones entre nodos        
 
         // Direccion en grados (heading)
         double heading = atan2(curSpeed.y, curSpeed.x) * 180.0 / M_PI;
@@ -347,17 +348,26 @@ void TrADApplLayer::handleSelfMsg(cMessage* msg)
         break;
     }
     case SEND_DATA_EVT: {
-        if (isScfAgent()) {
-            BaseFrame1609_4* wsm = new BaseFrame1609_4();
+        if (isScfAgent() || isSourceNode) {
+            DemoSafetyMessage* wsm = new DemoSafetyMessage();
             populateWSM(wsm);
+    
+            int beaconId = wsm->getBeaconId();
+    
+            // Solo el nodo origen guarda el tiempo de emisión
+            if (isSourceNode) {
+                beaconSentTimeMap[beaconId] = simTime();
+                EV_INFO << "[TrAD] Nodo " << myId << " es ORIGEN y registra tiempo de envío para beaconId " << beaconId << " en t=" << simTime() << "\n";
+            }
+    
             sendDown(wsm);
             generatedWSMs++;
     
-            EV_INFO << "[TrAD] Nodo " << myId << " (SCF-agent) transmite WSM\n";
+            EV_INFO << "[TrAD] Nodo " << myId << " transmite WSM beaconId " << beaconId << "\n";
         }
         scheduleAt(simTime() + beaconInterval, sendDataEvt);
         break;
-    }    
+    }
     default: {
         if (msg) EV_WARN << "APP: Mensaje interno desconocido: " << msg->getName() << endl;
         break;
@@ -376,11 +386,12 @@ void TrADApplLayer::finish()
     recordScalar("generatedWSAs", generatedWSAs);
     recordScalar("receivedWSAs", receivedWSAs);
 
+    // Guarda metricas por beacon: numero de receptores y delay
     for (const auto& entry : pdrReceptionMap) {
         int beaconId = entry.first;
         int receivers = entry.second.size();
     
-        // Registramos el número de nodos que recibieron este beacon
+        // Registra el número de nodos que recibieron este beacon
         std::string label = "pdr_received_beacon" + std::to_string(beaconId);
         recordScalar(label.c_str(), receivers);
     
@@ -397,6 +408,7 @@ TrADApplLayer::~TrADApplLayer()
 {
     cancelAndDelete(sendBeaconEvt);
     cancelAndDelete(sendWSAEvt);
+    cancelAndDelete(sendDataEvt);
     findHost()->unsubscribe(BaseMobility::mobilityStateChangedSignal, this);
 }
 
@@ -563,9 +575,19 @@ void TrADApplLayer::onWSM(BaseFrame1609_4* wsm) {
     receivedMessageIds.insert(beaconId);
     pdrReceptionMap[beaconId].insert(myId);
 
-    EV_INFO << "[TrAD] Nodo " << myId << " recibio y procesara WSM beaconId " << beaconId << "\n";
+    // Medir delay si se conoce el tiempo de envío
+    if (beaconSentTimeMap.count(beaconId)) {
+        simtime_t sent = beaconSentTimeMap[beaconId];
+        simtime_t delay = simTime() - sent;
 
-    // (Opcional) aquí puedes medir delay si guardaste el tiempo de emisión original
+        std::string label = "delay_beacon" + std::to_string(beaconId);
+        recordScalar(label.c_str(), delay);
+
+        EV_INFO << "[TrAD] Nodo " << myId << " calcula delay para beaconId " << beaconId
+                << ": " << delay << "s (enviado en " << sent << ", recibido en " << simTime() << ")\n";
+    }
+
+    EV_INFO << "[TrAD] Nodo " << myId << " recibio y procesara WSM beaconId " << beaconId << "\n";
 
     // Reenviar inmediatamente
     DemoSafetyMessage* copy = data->dup();

@@ -216,6 +216,9 @@ protected:
     /** @brief Desviación estándar del error GPS (metros) */
     double gpsDriftSigma = 2.5;
 
+    bool isSourceNode = false;
+    double initialDataDelay;
+
     /* messages for periodic events such as beacon and WSA transmissions */
     cMessage* sendBeaconEvt;
     cMessage* sendWSAEvt;

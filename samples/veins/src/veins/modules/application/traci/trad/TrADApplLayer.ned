@@ -32,6 +32,8 @@ simple TrADApplLayer like IBaseApplLayer
         double bitrate @unit(bps) = default(6Mbps); // PHY bitrate usado para calcular CBR
         double gpsDriftSigma = default(2.5m); // Desviación estándar del error GPS
         bool enableGpsDrift = default(true);  // Activar/desactivar error GPS
+        bool isSourceNode = default(false);
+        double initialDataDelay @unit(s) = default(1s);  // Tiempo de inicio para nodos fuente
 
     gates:
         input lowerLayerIn; // from mac layer

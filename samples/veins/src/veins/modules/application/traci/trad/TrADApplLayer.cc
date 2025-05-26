@@ -7,6 +7,9 @@
 #define SEND_REBROADCAST_EVT 999
 #define BITRATE 6e6  // 6 Mbps (como en el paper de TrAD)
 
+static std::map<int, std::set<LAddress::L2Type>> pdrReceptionMap;
+static int globalNodeCount = 0;
+
 using namespace veins;
 
 void TrADApplLayer::initialize(int stage)
@@ -50,7 +53,11 @@ void TrADApplLayer::initialize(int stage)
         bitrate = par("bitrate").doubleValue();
 
         enableGpsDrift = par("enableGpsDrift").boolValue();
-        gpsDriftSigma = par("gpsDriftSigma").doubleValue();        
+        gpsDriftSigma = par("gpsDriftSigma").doubleValue();      
+        
+        isSourceNode = par("isSourceNode").boolValue();
+
+        initialDataDelay = par("initialDataDelay").doubleValue();
 
         isParked = false;
 
@@ -67,6 +74,7 @@ void TrADApplLayer::initialize(int stage)
         receivedBSMs = 0;
         receivedWSAs = 0;
         receivedWSMs = 0;
+        globalNodeCount++;  // se incrementa una vez por nodo al iniciar
     }
     else if (stage == 1) {
 
@@ -97,6 +105,10 @@ void TrADApplLayer::initialize(int stage)
                 scheduleAt(firstBeacon, sendBeaconEvt);
             }
         }
+        // Si este nodo es el origen de difusión, programa el primer mensaje WSM
+        if (isSourceNode) {
+            scheduleAt(simTime() + initialDataDelay, sendDataEvt);  // envía el primer mensaje de datos después de 1s
+        }        
     }
 }
 
@@ -363,6 +375,22 @@ void TrADApplLayer::finish()
 
     recordScalar("generatedWSAs", generatedWSAs);
     recordScalar("receivedWSAs", receivedWSAs);
+
+    for (const auto& entry : pdrReceptionMap) {
+        int beaconId = entry.first;
+        int receivers = entry.second.size();
+    
+        // Registramos el número de nodos que recibieron este beacon
+        std::string label = "pdr_received_beacon" + std::to_string(beaconId);
+        recordScalar(label.c_str(), receivers);
+    
+        // Si conoce el total de nodos, registra la PDR (en porcentaje)
+        if (globalNodeCount > 0) {
+            double pdr = static_cast<double>(receivers) / globalNodeCount;
+            std::string labelPdr = "pdr_ratio_beacon" + std::to_string(beaconId);
+            recordScalar(labelPdr.c_str(), pdr);
+        }
+    }    
 }
 
 TrADApplLayer::~TrADApplLayer()
@@ -507,6 +535,43 @@ void TrADApplLayer::onBSM(DemoSafetyMessage* bsm) {
     DemoSafetyMessage* rebroadcast = bsm->dup();
     rebroadcast->setKind(SEND_REBROADCAST_EVT);
     scheduleAt(simTime() + delay, rebroadcast);
+
+    // Si este nodo es SCF-agent, programa envío periódico de WSM
+    if (this->isScfAgent() && !sendDataEvt->isScheduled()) {
+        scheduleAt(simTime() + beaconInterval * 0.5, sendDataEvt);
+    }
+
+    // Si ya no es SCF-agent pero tenía un envío programado, cancelarlo
+    if (!this->isScfAgent() && sendDataEvt->isScheduled()) {
+        cancelEvent(sendDataEvt);
+    }
+}
+
+void TrADApplLayer::onWSM(BaseFrame1609_4* wsm) {
+    DemoSafetyMessage* data = dynamic_cast<DemoSafetyMessage*>(wsm);
+    if (!data) return;
+
+    int beaconId = data->getBeaconId();
+
+    // Si ya fue recibido, ignorar
+    if (receivedMessageIds.count(beaconId)) {
+        EV_INFO << "[TrAD] Nodo " << myId << " ya recibio WSM con beaconId " << beaconId << ". Ignorado.\n";
+        return;
+    }
+
+    // Registra recepcion
+    receivedMessageIds.insert(beaconId);
+    pdrReceptionMap[beaconId].insert(myId);
+
+    EV_INFO << "[TrAD] Nodo " << myId << " recibio y procesara WSM beaconId " << beaconId << "\n";
+
+    // (Opcional) aquí puedes medir delay si guardaste el tiempo de emisión original
+
+    // Reenviar inmediatamente
+    DemoSafetyMessage* copy = data->dup();
+    copy->setKind(SEND_DATA_EVT);
+    sendDown(copy);
+    EV_INFO << "[TrAD] Nodo " << myId << " reenvio WSM beaconId " << beaconId << "\n";
 }
 
 void TrADApplLayer::purgeOldNeighbors() {
@@ -668,19 +733,30 @@ std::vector<LAddress::L2Type> TrADApplLayer::buildPriorityListFromClusters(const
 std::pair<LAddress::L2Type, LAddress::L2Type> TrADApplLayer::selectSCFAgents(const std::vector<LAddress::L2Type>& cluster) {
     if (cluster.empty()) return {-1, -1};
 
-    // Primero calcula la utilidad UTX de cada nodo
-    auto utxMap = calculateUTX(cluster);
+    // Calcula la utilidad USCF para todos los nodos del cluster
+    auto uscfMap = calculateUSCF(cluster);
 
-    // Luego selecciona como coordinador al nodo con mayor UTX
-    LAddress::L2Type coordinator = sortByUTX(utxMap).front();
+    // Selecciona como coordinador el nodo con mayor USCF
+    LAddress::L2Type coordinator = -1;
+    double maxUSCF = -1.0;
 
-    // Por ultimo selecciona como breaker al nodo mas lejano del coordinador
+    for (const auto& pair : uscfMap) {
+        if (pair.second > maxUSCF) {
+            maxUSCF = pair.second;
+            coordinator = pair.first;
+        }
+    }
+
+    if (coordinator == -1 || neighborTable.count(coordinator) == 0) return {-1, -1};
+
+    // Selecciona como breaker el nodo mas lejano al coordinador
     Coord coordPos = neighborTable[coordinator]->getSenderPos();
     LAddress::L2Type breaker = coordinator;
     double maxDistance = -1;
 
     for (const auto& nodeId : cluster) {
-        if (nodeId == coordinator) continue;
+        if (nodeId == coordinator || neighborTable.count(nodeId) == 0) continue;
+
         Coord pos = neighborTable[nodeId]->getSenderPos();
         double dist = coordPos.distance(pos);
         if (dist > maxDistance) {
@@ -689,8 +765,10 @@ std::pair<LAddress::L2Type, LAddress::L2Type> TrADApplLayer::selectSCFAgents(con
         }
     }
 
-    EV_INFO << "[TrAD][SCF] Cluster con " << cluster.size() << " nodos -> "
-            << "Coordinator: " << coordinator << ", Breaker: " << breaker << "\n";
+    EV_INFO << "[TrAD][SCF-USCF] Cluster con " << cluster.size()
+            << " nodos -> Coordinator: " << coordinator
+            << ", Breaker: " << breaker
+            << " | Max USCF: " << maxUSCF << "\n";
 
     return {coordinator, breaker};
 }

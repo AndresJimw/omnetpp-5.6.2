@@ -302,7 +302,20 @@ void TrADApplLayer::handleSelfMsg(cMessage* msg)
     }
     case SEND_REBROADCAST_EVT: {
         DemoSafetyMessage* rebroadcast = check_and_cast<DemoSafetyMessage*>(msg);
-        EV_INFO << "[TrAD] Nodo " << myId << " retransmite beaconId " << rebroadcast->getBeaconId() << "\n";
+        int beaconId = rebroadcast->getBeaconId();
+    
+        // Verifica si algun vecino ya retransmitió este beacon
+        if (rebroadcastsByBeaconId.count(beaconId)) {
+            EV_INFO << "[TrAD] Nodo " << myId << " cancela retransmision del beaconId "
+                    << beaconId << " porque ya fue retransmitido por otro nodo del cluster.\n";
+            delete rebroadcast;
+            break;
+        }
+    
+        // Marca que este nodo retransmitió
+        rebroadcastsByBeaconId[beaconId].insert(myId);
+    
+        EV_INFO << "[TrAD] Nodo " << myId << " retransmite beaconId " << beaconId << "\n";
         sendDown(rebroadcast);
         break;
     }
@@ -409,6 +422,8 @@ void TrADApplLayer::onBSM(DemoSafetyMessage* bsm) {
     // Si ya recibimos este mensaje antes, ignorar
     if (receivedMessageIds.count(beaconId)) {
         EV_INFO << "[TrAD] Nodo " << myId << " ya recibió beaconId " << beaconId << ". No retransmite.\n";
+        // Registrar que senderId ya retransmitió este beacon
+        rebroadcastsByBeaconId[beaconId].insert(senderId);
         return;
     }
 

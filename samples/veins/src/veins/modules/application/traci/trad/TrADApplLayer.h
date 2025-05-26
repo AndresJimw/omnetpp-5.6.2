@@ -182,6 +182,9 @@ protected:
     /** @brief Set local para evitar retransmitir mensajes ya recibidos (por beaconId) */
     std::set<int> receivedMessageIds;
 
+    /** @brief Mapa que registra qué nodos ya retransmitieron cada beaconId */
+    std::map<int, std::set<LAddress::L2Type>> rebroadcastsByBeaconId;
+
     /** @brief ID de beacon más reciente recibido (por debug o control opcional) */
     int lastReceivedBeaconId = -1;
 

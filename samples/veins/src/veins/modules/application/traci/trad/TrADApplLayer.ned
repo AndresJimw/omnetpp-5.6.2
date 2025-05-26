@@ -30,6 +30,8 @@ simple TrADApplLayer like IBaseApplLayer
         int wsaLengthBits = default(250bit) @unit(bit);
         double wsaInterval =  default(1s) @unit(s);
         double bitrate @unit(bps) = default(6Mbps); // PHY bitrate usado para calcular CBR
+        double gpsDriftSigma = default(2.5m); // Desviación estándar del error GPS
+        bool enableGpsDrift = default(true);  // Activar/desactivar error GPS
 
     gates:
         input lowerLayerIn; // from mac layer

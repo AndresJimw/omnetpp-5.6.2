@@ -48,6 +48,9 @@ void TrADApplLayer::initialize(int stage)
 
         bitrate = par("bitrate").doubleValue();
 
+        enableGpsDrift = par("enableGpsDrift").boolValue();
+        gpsDriftSigma = par("gpsDriftSigma").doubleValue();        
+
         isParked = false;
 
         findHost()->subscribe(BaseMobility::mobilityStateChangedSignal, this);
@@ -144,7 +147,7 @@ void TrADApplLayer::populateWSM(BaseFrame1609_4* wsm, LAddress::L2Type rcvId, in
 
     if (DemoSafetyMessage* bsm = dynamic_cast<DemoSafetyMessage*>(wsm)) {
         // Posicion y velocidad actual
-        bsm->setSenderPos(curPosition);
+        bsm->setSenderPos(applyGpsDrift(curPosition));
         bsm->setSenderSpeed(curSpeed);
 
         // ID unico del beacon (contador local)
@@ -304,18 +307,28 @@ void TrADApplLayer::handleSelfMsg(cMessage* msg)
         DemoSafetyMessage* rebroadcast = check_and_cast<DemoSafetyMessage*>(msg);
         int beaconId = rebroadcast->getBeaconId();
     
-        // Verifica si algun vecino ya retransmitió este beacon
-        if (rebroadcastsByBeaconId.count(beaconId)) {
-            EV_INFO << "[TrAD] Nodo " << myId << " cancela retransmision del beaconId "
-                    << beaconId << " porque ya fue retransmitido por otro nodo del cluster.\n";
+        // Si este nodo ya retransmitió este beacon, cancelar
+        if (rebroadcastsByBeaconId[beaconId].count(myId)) {
+            EV_INFO << "[TrAD] Nodo " << myId << " ya retransmitió beaconId " << beaconId << ". Cancela retransmisión.\n";
             delete rebroadcast;
             break;
         }
     
-        // Marca que este nodo retransmitió
+        // Registra que este nodo retransmite
         rebroadcastsByBeaconId[beaconId].insert(myId);
     
-        EV_INFO << "[TrAD] Nodo " << myId << " retransmite beaconId " << beaconId << "\n";
+        // Construye messageList[] con todos los que ya retransmitieron este beacon
+        const auto& rebroadcasters = rebroadcastsByBeaconId[beaconId];
+        rebroadcast->setMessageListArraySize(rebroadcasters.size());
+    
+        int idx = 0;
+        for (const auto& id : rebroadcasters) {
+            rebroadcast->setMessageList(idx++, id);
+        }
+    
+        EV_INFO << "[TrAD] Nodo " << myId << " retransmite beaconId " << beaconId
+                << " incluyendo messageList[] con " << rebroadcasters.size() << " nodos\n";
+    
         sendDown(rebroadcast);
         break;
     }
@@ -696,6 +709,14 @@ std::map<LAddress::L2Type, double> TrADApplLayer::calculateUSCF(const std::vecto
     }
 
     return uscfMap;
+}
+
+Coord TrADApplLayer::applyGpsDrift(const Coord& original) {
+    if (!enableGpsDrift) return original;
+
+    double dx = normal(0, gpsDriftSigma);
+    double dy = normal(0, gpsDriftSigma);
+    return Coord(original.x + dx, original.y + dy, original.z);
 }
 
 Define_Module(TrADApplLayer);

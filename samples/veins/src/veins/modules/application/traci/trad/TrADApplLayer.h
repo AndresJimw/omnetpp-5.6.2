@@ -185,6 +185,9 @@ protected:
     /** @brief Ordena nodos segun su utilidad UTX de forma descendente */
     std::vector<LAddress::L2Type> sortByUTX(const std::map<LAddress::L2Type, double>& utxMap);
 
+    /** @brief Selecciona el coordinador y breaker SCF en un cluster */
+    std::pair<LAddress::L2Type, LAddress::L2Type> selectSCFAgents(const std::vector<LAddress::L2Type>& cluster);
+
     /* messages for periodic events such as beacon and WSA transmissions */
     cMessage* sendBeaconEvt;
     cMessage* sendWSAEvt;

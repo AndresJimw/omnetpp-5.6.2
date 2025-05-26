@@ -564,4 +564,35 @@ std::vector<LAddress::L2Type> TrADApplLayer::buildPriorityListFromClusters(const
     return priorityList;
 }
 
+std::pair<LAddress::L2Type, LAddress::L2Type> TrADApplLayer::selectSCFAgents(const std::vector<LAddress::L2Type>& cluster) {
+    if (cluster.empty()) return {-1, -1};
+
+    // Primero calcula la utilidad UTX de cada nodo
+    auto utxMap = calculateUTX(cluster);
+
+    // Luego selecciona como coordinador al nodo con mayor UTX
+    LAddress::L2Type coordinator = sortByUTX(utxMap).front();
+
+    // Por ultimo selecciona como breaker al nodo mas lejano del coordinador
+    Coord coordPos = neighborTable[coordinator]->getSenderPos();
+    LAddress::L2Type breaker = coordinator;
+    double maxDistance = -1;
+
+    for (const auto& nodeId : cluster) {
+        if (nodeId == coordinator) continue;
+        Coord pos = neighborTable[nodeId]->getSenderPos();
+        double dist = coordPos.distance(pos);
+        if (dist > maxDistance) {
+            maxDistance = dist;
+            breaker = nodeId;
+        }
+    }
+
+    EV_INFO << "[TrAD][SCF] Cluster con " << cluster.size() << " nodos -> "
+            << "Coordinator: " << coordinator << ", Breaker: " << breaker << "\n";
+
+    return {coordinator, breaker};
+}
+
+
 Define_Module(TrADApplLayer);

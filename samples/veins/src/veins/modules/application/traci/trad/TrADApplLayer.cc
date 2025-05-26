@@ -4,6 +4,7 @@
 
 #define CLUSTER_ANGLE_THRESHOLD 10  // en grados
 #define SEND_REBROADCAST_EVT 999
+#define BITRATE 6e6  // 6 Mbps (como en el paper de TrAD)
 
 using namespace veins;
 
@@ -44,6 +45,8 @@ void TrADApplLayer::initialize(int stage)
 
         wsaInterval = par("wsaInterval").doubleValue();
         currentOfferedServiceId = -1;
+
+        bitrate = par("bitrate").doubleValue();
 
         isParked = false;
 
@@ -157,7 +160,7 @@ void TrADApplLayer::populateWSM(BaseFrame1609_4* wsm, LAddress::L2Type rcvId, in
         bsm->setNeighborCount(neighborTable.size());
 
         // Channel Busy Ratio (igual a 0.0, se calcula mas adelante)
-        bsm->setCbr(0.0);
+        bsm->setCbr(channelBusyRatio);
 
         // Clasificación y lista de prioridad
         auto clusters = classifyDirectionalClusters();
@@ -244,6 +247,18 @@ void TrADApplLayer::handleLowerMsg(cMessage* msg)
 
     BaseFrame1609_4* wsm = dynamic_cast<BaseFrame1609_4*>(msg);
     ASSERT(wsm);
+
+    // Acumula tiempo ocupado para calcular CBR
+    if (simTime() - cbrWindowStart >= cbrWindowLength) {
+        channelBusyRatio = busyTime / cbrWindowLength.dbl();
+        busyTime = 0.0;
+        cbrWindowStart = simTime();
+    }
+
+    if (BITRATE > 0) {
+        simtime_t duration = wsm->getBitLength() / BITRATE;
+        busyTime += duration.dbl();
+    }
 
     if (DemoSafetyMessage* bsm = dynamic_cast<DemoSafetyMessage*>(wsm)) {
         receivedBSMs++;

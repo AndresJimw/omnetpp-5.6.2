@@ -164,6 +164,15 @@ protected:
     uint32_t receivedWSAs;
     uint32_t receivedBSMs;
 
+    /** @brief Variables para calcular Channel Busy Ratio (CBR) */
+    simtime_t cbrWindowStart = 0;
+    simtime_t cbrWindowLength = 0.1; // 100 ms
+    double busyTime = 0.0;
+    double channelBusyRatio = 0.0;
+
+    /** @brief Bitrate utilizado para calcular el tiempo de ocupación del canal (CBR) */
+    double bitrate = 6e6;  // valor por defecto, se sobreescribe por .ned o .ini
+
     /* Header length in bits for all outgoing messages (used in populateWSM) */
     uint32_t headerLength;
 

@@ -29,6 +29,7 @@ simple TrADApplLayer like IBaseApplLayer
         bool sendWSA = default(false); // unused in TrAD, leave false unless needed
         int wsaLengthBits = default(250bit) @unit(bit);
         double wsaInterval =  default(1s) @unit(s);
+        double bitrate @unit(bps) = default(6Mbps); // PHY bitrate usado para calcular CBR
 
     gates:
         input lowerLayerIn; // from mac layer

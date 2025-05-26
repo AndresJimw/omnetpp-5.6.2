@@ -10,6 +10,7 @@
 static std::map<int, std::set<LAddress::L2Type>> pdrReceptionMap;
 static int globalNodeCount = 0;
 static std::map<int, simtime_t> beaconSentTimeMap;  // tiempo de emisión por beaconId
+static std::map<int, simtime_t> lastReceptionTimeMap;
 
 using namespace veins;
 
@@ -386,22 +387,51 @@ void TrADApplLayer::finish()
     recordScalar("generatedWSAs", generatedWSAs);
     recordScalar("receivedWSAs", receivedWSAs);
 
-    // Guarda metricas por beacon: numero de receptores y delay
+    // Recorre todos los beaconId registrados en el mapa de recepcion PDR
     for (const auto& entry : pdrReceptionMap) {
         int beaconId = entry.first;
-        int receivers = entry.second.size();
-    
-        // Registra el número de nodos que recibieron este beacon
-        std::string label = "pdr_received_beacon" + std::to_string(beaconId);
-        recordScalar(label.c_str(), receivers);
-    
-        // Si conoce el total de nodos, registra la PDR (en porcentaje)
+        int receivers = entry.second.size();  // cantidad de nodos que recibieron este beacon
+
+        // Registra el numero absoluto de receptores para este beacon
+        recordScalar(("pdr_received_beacon" + std::to_string(beaconId)).c_str(), receivers);
+
+        // Calcula y registra la PDR (receptores / total de nodos)
         if (globalNodeCount > 0) {
             double pdr = static_cast<double>(receivers) / globalNodeCount;
-            std::string labelPdr = "pdr_ratio_beacon" + std::to_string(beaconId);
-            recordScalar(labelPdr.c_str(), pdr);
+            recordScalar(("pdr_ratio_beacon" + std::to_string(beaconId)).c_str(), pdr);
         }
-    }    
+
+        // Calcula tiempo total de diseminacion si se conoce el tiempo de envio y el ultimo receptor
+        if (beaconSentTimeMap.count(beaconId) && lastReceptionTimeMap.count(beaconId)) {
+            simtime_t sent = beaconSentTimeMap[beaconId];
+            simtime_t lastReceived = lastReceptionTimeMap[beaconId];
+            simtime_t disseminationTime = lastReceived - sent;
+
+            // Registra el tiempo de diseminacion para este beacon
+            recordScalar(("dissemination_time_beacon" + std::to_string(beaconId)).c_str(), disseminationTime);
+
+            EV_INFO << "[TrAD] Tiempo total de diseminacion para beaconId " << beaconId
+                    << ": " << disseminationTime << "s\n";
+        }
+
+        // Cuenta transmisiones: 1 si fue enviado por el nodo origen
+        int transmissions = beaconSentTimeMap.count(beaconId) ? 1 : 0;
+
+        // Mas todas las retransmisiones hechas por SCF-agents
+        if (rebroadcastsByBeaconId.count(beaconId))
+            transmissions += rebroadcastsByBeaconId[beaconId].size();
+
+        // Calcula y registra la carga MAC normalizada si hubo receptores
+        if (receivers > 0) {
+            double normLoad = static_cast<double>(transmissions) / receivers;
+            recordScalar(("norm_mac_load_beacon" + std::to_string(beaconId)).c_str(), normLoad);
+
+            EV_INFO << "[TrAD] Normalized MAC Load para beaconId " << beaconId
+                    << ": " << transmissions << " transmisiones / "
+                    << receivers << " receptores = " << normLoad << "\n";
+        }
+    }
+    recordScalar("beacon_count", beaconSentTimeMap.size());
 }
 
 TrADApplLayer::~TrADApplLayer()
@@ -574,6 +604,11 @@ void TrADApplLayer::onWSM(BaseFrame1609_4* wsm) {
     // Registra recepcion
     receivedMessageIds.insert(beaconId);
     pdrReceptionMap[beaconId].insert(myId);
+
+    // Actualiza tiempo más reciente de recepción
+    if (!lastReceptionTimeMap.count(beaconId) || simTime() > lastReceptionTimeMap[beaconId]) {
+        lastReceptionTimeMap[beaconId] = simTime();
+    }
 
     // Medir delay si se conoce el tiempo de envío
     if (beaconSentTimeMap.count(beaconId)) {

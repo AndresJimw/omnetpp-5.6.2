@@ -170,6 +170,11 @@ protected:
     simtime_t cbrWindowLength = 0.1; // 100 ms
     double busyTime = 0.0;
     double channelBusyRatio = 0.0;
+    // Acumuladores para el cálculo del CBR promedio
+    double totalCbrSamples = 0.0;
+    int cbrSampleCount = 0;
+
+    double maxCbrObserved = 0.0;
 
     /** @brief Bitrate utilizado para calcular el tiempo de ocupación del canal (CBR) */
     double bitrate = 6e6;  // valor por defecto, se sobreescribe por .ned o .ini

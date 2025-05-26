@@ -11,6 +11,8 @@ static std::map<int, std::set<LAddress::L2Type>> pdrReceptionMap;
 static int globalNodeCount = 0;
 static std::map<int, simtime_t> beaconSentTimeMap;  // tiempo de emisión por beaconId
 static std::map<int, simtime_t> lastReceptionTimeMap;
+static std::map<int, Coord> beaconSentPosMap;
+static std::map<int, Coord> lastReceptionPosMap;
 
 using namespace veins;
 
@@ -166,9 +168,11 @@ void TrADApplLayer::populateWSM(BaseFrame1609_4* wsm, LAddress::L2Type rcvId, in
         bsm->setSenderPos(applyGpsDrift(curPosition));
         bsm->setSenderSpeed(curSpeed);
 
-        // ID unico del beacon (contador local)
-        static int beaconCounter = 0;
-        bsm->setBeaconId(beaconCounter++ + 10000 * myId);  // myId evita colisiones entre nodos        
+        // Genera un ID único por beacon: combina ID del nodo y contador local
+        static uint32_t beaconCounter = 0;
+        if (beaconCounter > 99999) beaconCounter = 0;  // reinicio seguro si se excede
+        int beaconId = static_cast<int>(myId * 100000 + beaconCounter++);
+        bsm->setBeaconId(beaconId);
 
         // Direccion en grados (heading)
         double heading = atan2(curSpeed.y, curSpeed.x) * 180.0 / M_PI;
@@ -272,6 +276,13 @@ void TrADApplLayer::handleLowerMsg(cMessage* msg)
         channelBusyRatio = busyTime / cbrWindowLength.dbl();
         busyTime = 0.0;
         cbrWindowStart = simTime();
+
+        // Acumula para calcular CBR promedio global
+        totalCbrSamples += channelBusyRatio;
+        cbrSampleCount++;
+
+        if (channelBusyRatio > maxCbrObserved)
+            maxCbrObserved = channelBusyRatio;
     }
 
     if (BITRATE > 0) {
@@ -358,6 +369,7 @@ void TrADApplLayer::handleSelfMsg(cMessage* msg)
             // Solo el nodo origen guarda el tiempo de emisión
             if (isSourceNode) {
                 beaconSentTimeMap[beaconId] = simTime();
+                beaconSentPosMap[beaconId] = curPosition;  // guardar la posicion del emisor
                 EV_INFO << "[TrAD] Nodo " << myId << " es ORIGEN y registra tiempo de envío para beaconId " << beaconId << " en t=" << simTime() << "\n";
             }
     
@@ -392,46 +404,69 @@ void TrADApplLayer::finish()
         int beaconId = entry.first;
         int receivers = entry.second.size();  // cantidad de nodos que recibieron este beacon
 
-        // Registra el numero absoluto de receptores para este beacon
+        // Registra el numero absoluto de receptores
         recordScalar(("pdr_received_beacon" + std::to_string(beaconId)).c_str(), receivers);
 
-        // Calcula y registra la PDR (receptores / total de nodos)
+        // Calcula y registra la PDR (receivers / total de nodos)
         if (globalNodeCount > 0) {
             double pdr = static_cast<double>(receivers) / globalNodeCount;
             recordScalar(("pdr_ratio_beacon" + std::to_string(beaconId)).c_str(), pdr);
         }
 
-        // Calcula tiempo total de diseminacion si se conoce el tiempo de envio y el ultimo receptor
-        if (beaconSentTimeMap.count(beaconId) && lastReceptionTimeMap.count(beaconId)) {
+        // Si se conoce el tiempo y posicion de envio y recepcion
+        bool hasTime = beaconSentTimeMap.count(beaconId) && lastReceptionTimeMap.count(beaconId);
+        bool hasPos  = beaconSentPosMap.count(beaconId) && lastReceptionPosMap.count(beaconId);
+        if (hasTime) {
             simtime_t sent = beaconSentTimeMap[beaconId];
             simtime_t lastReceived = lastReceptionTimeMap[beaconId];
             simtime_t disseminationTime = lastReceived - sent;
 
-            // Registra el tiempo de diseminacion para este beacon
             recordScalar(("dissemination_time_beacon" + std::to_string(beaconId)).c_str(), disseminationTime);
-
             EV_INFO << "[TrAD] Tiempo total de diseminacion para beaconId " << beaconId
                     << ": " << disseminationTime << "s\n";
+
+            if (hasPos) {
+                Coord posTx = beaconSentPosMap[beaconId];
+                Coord posRx = lastReceptionPosMap[beaconId];
+                double dist = posTx.distance(posRx);
+
+                recordScalar(("dissemination_distance_beacon" + std::to_string(beaconId)).c_str(), dist);
+                EV_INFO << "[TrAD] Dissemination distance para beaconId " << beaconId
+                        << ": " << dist << " m (de " << posTx << " a " << posRx << ")\n";
+
+                if (disseminationTime > 0) {
+                    double speed = dist / disseminationTime.dbl();
+                    recordScalar(("dissemination_speed_beacon" + std::to_string(beaconId)).c_str(), speed);
+                    EV_INFO << "[TrAD] Dissemination speed para beaconId " << beaconId
+                            << ": " << speed << " m/s\n";
+                }
+            }
         }
 
-        // Cuenta transmisiones: 1 si fue enviado por el nodo origen
+        // Cuenta transmisiones: 1 si lo envio el nodo fuente
         int transmissions = beaconSentTimeMap.count(beaconId) ? 1 : 0;
-
-        // Mas todas las retransmisiones hechas por SCF-agents
         if (rebroadcastsByBeaconId.count(beaconId))
             transmissions += rebroadcastsByBeaconId[beaconId].size();
 
-        // Calcula y registra la carga MAC normalizada si hubo receptores
         if (receivers > 0) {
             double normLoad = static_cast<double>(transmissions) / receivers;
             recordScalar(("norm_mac_load_beacon" + std::to_string(beaconId)).c_str(), normLoad);
-
             EV_INFO << "[TrAD] Normalized MAC Load para beaconId " << beaconId
                     << ": " << transmissions << " transmisiones / "
                     << receivers << " receptores = " << normLoad << "\n";
         }
     }
+
     recordScalar("beacon_count", beaconSentTimeMap.size());
+    recordScalar("simtime_total", simTime());
+    recordScalar("messages_received_unique", receivedMessageIds.size());
+
+    if (cbrSampleCount > 0) {
+        double avgCbr = totalCbrSamples / cbrSampleCount;
+        recordScalar("cbr_avg", avgCbr);
+        recordScalar("cbr_max", maxCbrObserved);
+        EV_INFO << "[TrAD] CBR promedio registrado: " << avgCbr << "\n";
+    }
 }
 
 TrADApplLayer::~TrADApplLayer()
@@ -608,6 +643,7 @@ void TrADApplLayer::onWSM(BaseFrame1609_4* wsm) {
     // Actualiza tiempo más reciente de recepción
     if (!lastReceptionTimeMap.count(beaconId) || simTime() > lastReceptionTimeMap[beaconId]) {
         lastReceptionTimeMap[beaconId] = simTime();
+        lastReceptionPosMap[beaconId] = curPosition;  // guarda posicion del ultimo receptor
     }
 
     // Medir delay si se conoce el tiempo de envío

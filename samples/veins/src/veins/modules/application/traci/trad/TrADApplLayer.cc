@@ -1,4 +1,6 @@
 #include "veins/modules/application/traci/trad/TrADApplLayer.h"
+#include "veins/base/utils/SimpleAddress.h"  // para LAddress::L2Type
+#include "veins/base/utils/Coord.h"          // para Coord
 #include <vector>
 #include <set>
 #include <map>
@@ -7,12 +9,12 @@
 #define SEND_REBROADCAST_EVT 999
 #define BITRATE 6e6  // 6 Mbps (como en el paper de TrAD)
 
-static std::map<int, std::set<LAddress::L2Type>> pdrReceptionMap;
+static std::map<int, std::set<veins::LAddress::L2Type>> pdrReceptionMap;
 static int globalNodeCount = 0;
 static std::map<int, simtime_t> beaconSentTimeMap;  // tiempo de emisión por beaconId
 static std::map<int, simtime_t> lastReceptionTimeMap;
-static std::map<int, Coord> beaconSentPosMap;
-static std::map<int, Coord> lastReceptionPosMap;
+static std::map<int, veins::Coord> beaconSentPosMap;
+static std::map<int, veins::Coord> lastReceptionPosMap;
 
 using namespace veins;
 
@@ -560,7 +562,7 @@ void TrADApplLayer::onBSM(DemoSafetyMessage* bsm) {
     }
 
     // Verifica si algun mensaje en la lista ya fue visto
-    for (int i = 0; i < bsm->getMessageListArraySize(); ++i) {
+    for (size_t i = 0; i < bsm->getMessageListArraySize(); ++i) {
         if (bsm->getMessageList(i) == beaconId) {
             EV_INFO << "[TrAD] Nodo " << myId << " detecto beaconId " << beaconId << " en messageList[]. No retransmite.\n";
             return;
@@ -586,7 +588,7 @@ void TrADApplLayer::onBSM(DemoSafetyMessage* bsm) {
 
     // Verifica si este nodo esta en la lista de SCF-agents
     bool isScfAgent = false;
-    for (int i = 0; i < bsm->getScfAgentsArraySize(); ++i) {
+    for (size_t i = 0; i < bsm->getScfAgentsArraySize(); ++i) {
         if (bsm->getScfAgents(i) == myId) {
             isScfAgent = true;
             break;

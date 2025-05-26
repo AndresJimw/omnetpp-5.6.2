@@ -27,7 +27,7 @@ using veins::TraCIMobilityAccess;
  * @brief
  * Demo application layer base class.
  *
- * @author Brandon Jim�nez
+ * @author Brandon Jimenez
  *
  * @ingroup applLayer
  *
@@ -65,7 +65,7 @@ protected:
     virtual void populateWSM(BaseFrame1609_4* wsm, LAddress::L2Type rcvId = LAddress::L2BROADCAST(), int serial = 0);
 
     /** @brief this function is called upon receiving a BaseFrame1609_4 */
-    virtual void onWSM(BaseFrame1609_4* wsm){};
+    virtual void onWSM(BaseFrame1609_4* wsm);
 
     /** @brief this function is called upon receiving a DemoSafetyMessage, also referred to as a beacon  */
     virtual void onBSM(DemoSafetyMessage* bsm);

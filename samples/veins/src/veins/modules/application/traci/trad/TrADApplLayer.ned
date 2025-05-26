@@ -18,7 +18,7 @@ simple TrADApplLayer like IBaseApplLayer
         bool sendBeacons = default(true); //tell the applayer to periodically send beacons
         int beaconLengthBits = default(256bit) @unit(bit); //the length of a beacon packet
         int beaconUserPriority = default(7); //the user priority (UP) of the beacon messages
-        double beaconInterval = default(1s) @unit(s); //the intervall between 2 beacon messages
+        double beaconInterval = default(1s) @unit(s); //the interval between 2 beacon messages
 
         int dataLengthBits = default(1024bit) @unit(bit); //the length of a data packet
         bool dataOnSch = default(false); //tells the applayer whether to use a service channel for datapackets or the control channel
@@ -28,9 +28,9 @@ simple TrADApplLayer like IBaseApplLayer
 
         bool sendWSA = default(false); // unused in TrAD, leave false unless needed
         int wsaLengthBits = default(250bit) @unit(bit);
-        double wsaInterval =  default(1s) @unit(s);
+        double wsaInterval = default(1s) @unit(s);
         double bitrate @unit(bps) = default(6Mbps); // PHY bitrate usado para calcular CBR
-        double gpsDriftSigma = default(2.5m); // Desviación estándar del error GPS
+        double gpsDriftSigma @unit(m) = default(2.5m); // Desviación estándar del error GPS
         bool enableGpsDrift = default(true);  // Activar/desactivar error GPS
         bool isSourceNode = default(false);
         double initialDataDelay @unit(s) = default(1s); // delay antes del primer mensaje de datos si es nodo origen

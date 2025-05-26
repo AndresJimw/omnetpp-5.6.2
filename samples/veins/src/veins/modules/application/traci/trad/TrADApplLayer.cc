@@ -163,6 +163,26 @@ void TrADApplLayer::populateWSM(BaseFrame1609_4* wsm, LAddress::L2Type rcvId, in
         auto clusters = classifyDirectionalClusters();
         auto priorityList = buildPriorityListFromClusters(clusters);
 
+        // Guardar lista de prioridad
+        bsm->setPriorityListArraySize(priorityList.size());
+        for (size_t i = 0; i < priorityList.size(); ++i) {
+            bsm->setPriorityList(i, priorityList[i]);
+        }
+
+        // Selección de SCF-agents por cluster
+        std::vector<LAddress::L2Type> scfAgents;
+        for (const auto& cluster : clusters) {
+            auto pair = selectSCFAgents(cluster);
+            if (pair.first != -1) scfAgents.push_back(pair.first);  // coordinator
+            if (pair.second != -1) scfAgents.push_back(pair.second); // breaker
+        }
+
+        // Guarda lista de SCF-agents en el beacon
+        bsm->setScfAgentsArraySize(scfAgents.size());
+        for (size_t i = 0; i < scfAgents.size(); ++i) {
+            bsm->setScfAgents(i, scfAgents[i]);
+        }
+
         bsm->setPriorityListArraySize(priorityList.size());
         for (size_t i = 0; i < priorityList.size(); ++i) {
             bsm->setPriorityList(i, priorityList[i]);
@@ -403,7 +423,23 @@ void TrADApplLayer::onBSM(DemoSafetyMessage* bsm) {
         return;
     }
 
-    // Calcular delay segun posicion (mayor posicion => mayor delay)
+    // Verifica si este nodo esta en la lista de SCF-agents
+    bool isScfAgent = false;
+    for (int i = 0; i < bsm->getScfAgentsArraySize(); ++i) {
+        if (bsm->getScfAgents(i) == myId) {
+            isScfAgent = true;
+            break;
+        }
+    }
+
+    if (!isScfAgent) {
+        EV_INFO << "[TrAD] Nodo " << myId << " no esta en la lista SCF-agents. No retransmite.\n";
+        return;
+    }
+
+    // Si pasa todas las condiciones, programa la retransmision
+
+    // Calcula delay segun posicion (mayor posicion => mayor delay)
     double maxDelay = 0.1; // 100 ms como en el paper (TrAD Algorithm 2)
     simtime_t delay = SimTime(position * maxDelay / bsm->getPriorityListArraySize());
 

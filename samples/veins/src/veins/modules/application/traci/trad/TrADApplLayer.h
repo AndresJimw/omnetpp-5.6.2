@@ -47,7 +47,8 @@ public:
 
     enum MessageKinds {
         SEND_BEACON_EVT,
-        SEND_WSA_EVT
+        SEND_WSA_EVT,
+        SEND_DATA_EVT,
     };
 
 protected:
@@ -203,6 +204,9 @@ protected:
     /** @brief Selecciona el coordinador y breaker SCF en un cluster */
     std::pair<LAddress::L2Type, LAddress::L2Type> selectSCFAgents(const std::vector<LAddress::L2Type>& cluster);
 
+    /** @brief Verifica si este nodo fue SCF-agent del último beacon recibido */
+    bool isScfAgent() const;
+
     /** @brief Aplica error de GPS al enviar posición en los beacons */
     Coord applyGpsDrift(const Coord& original);
 
@@ -215,6 +219,7 @@ protected:
     /* messages for periodic events such as beacon and WSA transmissions */
     cMessage* sendBeaconEvt;
     cMessage* sendWSAEvt;
+    cMessage* sendDataEvt;
 };
 
 } // namespace veins

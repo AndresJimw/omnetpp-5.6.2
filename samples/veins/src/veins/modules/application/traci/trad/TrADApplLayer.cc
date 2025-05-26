@@ -1,6 +1,7 @@
 #include "veins/modules/application/traci/trad/TrADApplLayer.h"
 #include <vector>
 #include <set>
+#include <map>
 
 #define CLUSTER_ANGLE_THRESHOLD 10  // en grados
 #define SEND_REBROADCAST_EVT 999
@@ -58,6 +59,7 @@ void TrADApplLayer::initialize(int stage)
 
         sendBeaconEvt = new cMessage("beacon evt", SEND_BEACON_EVT);
         sendWSAEvt = new cMessage("wsa evt", SEND_WSA_EVT);
+        sendDataEvt = new cMessage("data evt", SEND_DATA_EVT);
 
         generatedBSMs = 0;
         generatedWSAs = 0;
@@ -332,6 +334,18 @@ void TrADApplLayer::handleSelfMsg(cMessage* msg)
         sendDown(rebroadcast);
         break;
     }
+    case SEND_DATA_EVT: {
+        if (isScfAgent()) {
+            BaseFrame1609_4* wsm = new BaseFrame1609_4();
+            populateWSM(wsm);
+            sendDown(wsm);
+            generatedWSMs++;
+    
+            EV_INFO << "[TrAD] Nodo " << myId << " (SCF-agent) transmite WSM\n";
+        }
+        scheduleAt(simTime() + beaconInterval, sendDataEvt);
+        break;
+    }    
     default: {
         if (msg) EV_WARN << "APP: Mensaje interno desconocido: " << msg->getName() << endl;
         break;
@@ -509,6 +523,15 @@ void TrADApplLayer::purgeOldNeighbors() {
     for (LAddress::L2Type id : toDelete) {
         delete neighborTable[id];
         neighborTable.erase(id);
+    }
+
+    // Limpieza de registros viejos de retransmisión
+    for (auto it = rebroadcastsByBeaconId.begin(); it != rebroadcastsByBeaconId.end(); ) {
+        if (!receivedMessageIds.count(it->first)) {
+            it = rebroadcastsByBeaconId.erase(it);
+        } else {
+            ++it;
+        }
     }
 }
 
@@ -717,6 +740,12 @@ Coord TrADApplLayer::applyGpsDrift(const Coord& original) {
     double dx = normal(0, gpsDriftSigma);
     double dy = normal(0, gpsDriftSigma);
     return Coord(original.x + dx, original.y + dy, original.z);
+}
+
+bool TrADApplLayer::isScfAgent() const {
+    auto it = rebroadcastsByBeaconId.find(lastReceivedBeaconId);
+    if (it == rebroadcastsByBeaconId.end()) return false;
+    return it->second.count(myId) > 0;
 }
 
 Define_Module(TrADApplLayer);

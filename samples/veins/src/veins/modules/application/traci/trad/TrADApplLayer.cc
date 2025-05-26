@@ -1,7 +1,9 @@
 #include "veins/modules/application/traci/trad/TrADApplLayer.h"
 #include <vector>
+#include <set>
 
 #define CLUSTER_ANGLE_THRESHOLD 10  // en grados
+#define SEND_REBROADCAST_EVT 999
 
 using namespace veins;
 
@@ -138,29 +140,42 @@ void TrADApplLayer::populateWSM(BaseFrame1609_4* wsm, LAddress::L2Type rcvId, in
     wsm->setBitLength(headerLength);
 
     if (DemoSafetyMessage* bsm = dynamic_cast<DemoSafetyMessage*>(wsm)) {
-        // Posición y velocidad actual
+        // Posicion y velocidad actual
         bsm->setSenderPos(curPosition);
         bsm->setSenderSpeed(curSpeed);
 
-        // ID único del beacon (puede ser simplemente un contador local por ahora)
+        // ID unico del beacon (contador local)
         static int beaconCounter = 0;
         bsm->setBeaconId(beaconCounter++);
 
-        // Dirección en grados (heading)
+        // Direccion en grados (heading)
         double heading = atan2(curSpeed.y, curSpeed.x) * 180.0 / M_PI;
         if (heading < 0) heading += 360;
         bsm->setHeading(heading);
 
-        // Número de vecinos (provisional: se implementará más adelante con recepción de beacons)
-        bsm->setNeighborCount(0);
+        // Numero de vecinos (opcional por ahora)
+        bsm->setNeighborCount(neighborTable.size());
 
-        // Channel Busy Ratio (provisional: igual a 0.0, se calcula más adelante)
+        // Channel Busy Ratio (igual a 0.0, se calcula mas adelante)
         bsm->setCbr(0.0);
 
-        // Lista de mensajes ya recibidos (provisional: vacía por ahora)
-        bsm->setMessageListArraySize(0);
+        // ClasificaciÃ³n y lista de prioridad
+        auto clusters = classifyDirectionalClusters();
+        auto priorityList = buildPriorityListFromClusters(clusters);
 
-        // Otros parámetros estándar
+        bsm->setPriorityListArraySize(priorityList.size());
+        for (size_t i = 0; i < priorityList.size(); ++i) {
+            bsm->setPriorityList(i, priorityList[i]);
+        }
+
+        // Lista de mensajes ya conocidos por este nodo
+        bsm->setMessageListArraySize(receivedMessageIds.size());
+        int idx = 0;
+        for (int msgId : receivedMessageIds) {
+            bsm->setMessageList(idx++, msgId);
+        }
+
+        // Otros parametros estandar
         bsm->setPsid(-1);
         bsm->setChannelNumber(static_cast<int>(Channel::cch));
         bsm->addBitLength(beaconLengthBits);
@@ -236,17 +251,9 @@ void TrADApplLayer::handleSelfMsg(cMessage* msg)
         DemoSafetyMessage* bsm = new DemoSafetyMessage();
         populateWSM(bsm);
 
-        // Prueba de clasificación direccional
+        // Clasificacion direccional
         auto clusters = classifyDirectionalClusters();
-        EV_INFO << "Numero de clusters direccionales: " << clusters.size() << endl;
-
-        for (size_t i = 0; i < clusters.size(); ++i) {
-            EV_INFO << "  Sector " << i << " contiene " << clusters[i].size() << " nodos: ";
-            for (LAddress::L2Type id : clusters[i]) {
-                EV_INFO << id << " ";
-            }
-            EV_INFO << endl;
-        }
+        EV_INFO << "[TrAD] Nodo " << myId << " clasifico " << clusters.size() << " clusters direccionales\n";
 
         sendDown(bsm);
         scheduleAt(simTime() + beaconInterval, sendBeaconEvt);
@@ -259,8 +266,14 @@ void TrADApplLayer::handleSelfMsg(cMessage* msg)
         scheduleAt(simTime() + wsaInterval, sendWSAEvt);
         break;
     }
+    case SEND_REBROADCAST_EVT: {
+        DemoSafetyMessage* rebroadcast = check_and_cast<DemoSafetyMessage*>(msg);
+        EV_INFO << "[TrAD] Nodo " << myId << " retransmite beaconId " << rebroadcast->getBeaconId() << "\n";
+        sendDown(rebroadcast);
+        break;
+    }
     default: {
-        if (msg) EV_WARN << "APP: Error: Got Self Message of unknown kind! Name: " << msg->getName() << endl;
+        if (msg) EV_WARN << "APP: Mensaje interno desconocido: " << msg->getName() << endl;
         break;
     }
     }
@@ -337,17 +350,71 @@ void TrADApplLayer::checkAndTrackPacket(cMessage* msg)
 void TrADApplLayer::onBSM(DemoSafetyMessage* bsm) {
     LAddress::L2Type senderId = bsm->getSenderModuleId();
 
-    // Guardar o reemplazar beacon del vecino
+    // Guarda o reemplaza beacon del vecino
     if (neighborTable.find(senderId) != neighborTable.end()) {
-        delete neighborTable[senderId];  // borrar beacon viejo
+        delete neighborTable[senderId];  // borra beacon viejo
     }
-    neighborTable[senderId] = bsm->dup();  // guardar copia nueva con tiempo actual
+    neighborTable[senderId] = bsm->dup();  // guarda copia nueva con tiempo actual
 
     EV_INFO << "[TrAD] Nodo " << myId
             << " recibio beacon de " << senderId
             << " en t=" << simTime()
             << " | Total vecinos: " << neighborTable.size() << endl;
 
+    // Muestra lista de prioridad recibida
+    EV_INFO << "[TrAD] Prioridad recibida:\n";
+    for (size_t i = 0; i < bsm->getPriorityListArraySize(); ++i) {
+        EV_INFO << "  [" << i << "] Nodo " << bsm->getPriorityList(i) << "\n";
+    }
+
+    // --- Retransmision adaptativa basada en prioridad (TrAD Alg. 2) ---
+
+    int beaconId = bsm->getBeaconId();
+    lastReceivedBeaconId = beaconId;
+
+    // Si ya recibimos este mensaje antes, ignorar
+    if (receivedMessageIds.count(beaconId)) {
+        EV_INFO << "[TrAD] Nodo " << myId << " ya recibiÃ³ beaconId " << beaconId << ". No retransmite.\n";
+        return;
+    }
+
+    // Verifica si algun mensaje en la lista ya fue visto
+    for (int i = 0; i < bsm->getMessageListArraySize(); ++i) {
+        if (bsm->getMessageList(i) == beaconId) {
+            EV_INFO << "[TrAD] Nodo " << myId << " detecto beaconId " << beaconId << " en messageList[]. No retransmite.\n";
+            return;
+        }
+    }
+
+    receivedMessageIds.insert(beaconId);  // registra este beacon como recibido
+
+    // Verifica si este nodo esta en la lista de prioridad
+    int position = -1;
+    for (size_t i = 0; i < bsm->getPriorityListArraySize(); ++i) {
+        if (bsm->getPriorityList(i) == myId) {
+            position = i;
+            break;
+        }
+    }
+
+    // Si no estÃ¡ en la lista, no retransmite
+    if (position == -1) {
+        EV_INFO << "[TrAD] Nodo " << myId << " no esta en la lista de prioridad. No retransmite.\n";
+        return;
+    }
+
+    // Calcular delay segun posicion (mayor posicion => mayor delay)
+    double maxDelay = 0.1; // 100 ms como en el paper (TrAD Algorithm 2)
+    simtime_t delay = SimTime(position * maxDelay / bsm->getPriorityListArraySize());
+
+    EV_INFO << "[TrAD] Nodo " << myId << " programara retransmision del beaconId " << beaconId
+            << " con delay = " << delay << "s (posicion " << position << " de "
+            << bsm->getPriorityListArraySize() << ")\n";
+
+    // Clonar el beacon y programar la retransmision
+    DemoSafetyMessage* rebroadcast = bsm->dup();
+    rebroadcast->setKind(SEND_REBROADCAST_EVT);
+    scheduleAt(simTime() + delay, rebroadcast);
 }
 
 void TrADApplLayer::purgeOldNeighbors() {
@@ -370,7 +437,7 @@ void TrADApplLayer::purgeOldNeighbors() {
 std::vector<std::vector<LAddress::L2Type>> TrADApplLayer::classifyDirectionalClusters() {
     std::vector<std::vector<LAddress::L2Type>> clusters;
 
-    // Copia de la tabla de vecinos para clasificación
+    // Copia de la tabla de vecinos para clasificacion
     std::map<LAddress::L2Type, DemoSafetyMessage*> remainingNeighbors = neighborTable;
 
     while (!remainingNeighbors.empty()) {
@@ -384,12 +451,12 @@ std::vector<std::vector<LAddress::L2Type>> TrADApplLayer::classifyDirectionalClu
         currentCluster.push_back(refId);
         remainingNeighbors.erase(it);
 
-        // Iteramos sobre los demás vecinos
+        // Iteramos sobre los demas vecinos
         for (auto it2 = remainingNeighbors.begin(); it2 != remainingNeighbors.end(); ) {
             Coord pos = it2->second->getSenderPos();
             Coord vec = pos - curPosition;
 
-            // Calculamos ángulo entre ref y actual
+            // Calculamos angulo entre ref y actual
             double angle = acos((vecRef * vec) / (vecRef.length() * vec.length())) * (180.0 / M_PI);
 
             if (angle < CLUSTER_ANGLE_THRESHOLD) {
@@ -415,6 +482,86 @@ std::vector<std::vector<LAddress::L2Type>> TrADApplLayer::classifyDirectionalClu
     return clusters;
 }
 
+// Metodo: calcular UTX para un cluster
+std::map<LAddress::L2Type, double> TrADApplLayer::calculateUTX(const std::vector<LAddress::L2Type>& cluster) {
+    std::map<LAddress::L2Type, double> utxMap;
 
+    // Numero de vecinos (normalizado con maximo = 25)
+    int numNeighbors = neighborTable.size();
+    double N = std::min(static_cast<double>(numNeighbors) / 25.0, 1.0);
+
+    for (const auto& neighborId : cluster) {
+        DemoSafetyMessage* bsm = neighborTable[neighborId];
+        if (!bsm) continue;
+
+        // Distancia al vecino (normalizada con maxRadioRange = 366 m)
+        double distance = curPosition.distance(bsm->getSenderPos());
+        double D = std::min(distance / 366.0, 1.0);
+
+        // Channel Busy Ratio reportado por el vecino
+        double CBR = bsm->getCbr();
+
+        // Peso segun la congestion del canal (wCBR)
+        double wCBR;
+        if (CBR < 0.6)
+            wCBR = 1.0;
+        else if (CBR < 0.8)
+            wCBR = 1.0 - CBR;
+        else
+            wCBR = 0.001;
+
+        // Utilidad UTX
+        double utx = wCBR * (N + D) / 2.0;
+        utxMap[neighborId] = utx;
+    }
+
+    return utxMap;
+}
+
+// Metodo: ordenar por utilidad
+std::vector<LAddress::L2Type> TrADApplLayer::sortByUTX(const std::map<LAddress::L2Type, double>& utxMap) {
+    std::vector<std::pair<LAddress::L2Type, double>> vec(utxMap.begin(), utxMap.end());
+
+    std::sort(vec.begin(), vec.end(),
+              [](const std::pair<LAddress::L2Type, double>& a, const std::pair<LAddress::L2Type, double>& b) {
+                  return a.second > b.second;  // orden descendente por utilidad
+              });
+
+    std::vector<LAddress::L2Type> sorted;
+    for (const auto& p : vec) {
+        sorted.push_back(p.first);
+    }
+
+    return sorted;
+}
+
+// Metodo: buildPriorityListFromClusters
+std::vector<LAddress::L2Type> TrADApplLayer::buildPriorityListFromClusters(const std::vector<std::vector<LAddress::L2Type>>& clusters) {
+    std::vector<std::vector<LAddress::L2Type>> orderedClusters;
+
+    // Ordenar cada cluster individualmente por UTX
+    for (const auto& cluster : clusters) {
+        auto utxMap = calculateUTX(cluster);
+        auto sorted = sortByUTX(utxMap);
+        orderedClusters.push_back(sorted);
+    }
+
+    std::vector<LAddress::L2Type> priorityList;
+    size_t round = 0;
+    bool added;
+
+    do {
+        added = false;
+        for (auto& cluster : orderedClusters) {
+            if (round < cluster.size()) {
+                priorityList.push_back(cluster[round]);
+                added = true;
+            }
+        }
+        round++;
+    } while (added);
+
+    return priorityList;
+}
 
 Define_Module(TrADApplLayer);

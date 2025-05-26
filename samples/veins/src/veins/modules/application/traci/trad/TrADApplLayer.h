@@ -27,7 +27,7 @@ using veins::TraCIMobilityAccess;
  * @brief
  * Demo application layer base class.
  *
- * @author Brandon Jiménez
+ * @author Brandon Jimï¿½nez
  *
  * @ingroup applLayer
  *
@@ -57,7 +57,7 @@ protected:
     /** @brief handle self messages */
     void handleSelfMsg(cMessage* msg) override;
 
-    /** @brief Clasifica los vecinos actuales en clusters direccionales usando ángulo vectorial */
+    /** @brief Clasifica los vecinos actuales en clusters direccionales usando ï¿½ngulo vectorial */
     std::vector<std::vector<LAddress::L2Type>> classifyDirectionalClusters();
 
     /** @brief sets all the necessary fields in the WSM, BSM, or WSA. */
@@ -168,7 +168,22 @@ protected:
     uint32_t headerLength;
 
     std::map<LAddress::L2Type, DemoSafetyMessage*> neighborTable;
-    simtime_t neighborTimeout = 1.5; // tiempo máximo antes de eliminar un vecino (paper: 1.5s)
+    simtime_t neighborTimeout = 1.5; // tiempo mï¿½ximo antes de eliminar un vecino (paper: 1.5s)
+
+    /** @brief Set local para evitar retransmitir mensajes ya recibidos (por beaconId) */
+    std::set<int> receivedMessageIds;
+
+    /** @brief ID de beacon mÃ¡s reciente recibido (por debug o control opcional) */
+    int lastReceivedBeaconId = -1;
+
+    /** @brief Construye lista de prioridad usando round-robin y utilidad UTX */
+    std::vector<LAddress::L2Type> buildPriorityListFromClusters(const std::vector<std::vector<LAddress::L2Type>>& clusters);
+
+    /** @brief Calcula la utilidad UTX de cada nodo en un cluster */
+    std::map<LAddress::L2Type, double> calculateUTX(const std::vector<LAddress::L2Type>& cluster);
+
+    /** @brief Ordena nodos segun su utilidad UTX de forma descendente */
+    std::vector<LAddress::L2Type> sortByUTX(const std::map<LAddress::L2Type, double>& utxMap);
 
     /* messages for periodic events such as beacon and WSA transmissions */
     cMessage* sendBeaconEvt;

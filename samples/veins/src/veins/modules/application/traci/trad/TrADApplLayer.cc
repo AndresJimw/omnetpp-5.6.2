@@ -359,6 +359,7 @@ void TrADApplLayer::handleSelfMsg(cMessage* msg)
                 << " incluyendo messageList[] con " << rebroadcasters.size() << " nodos\n";
     
         sendDown(rebroadcast);
+        delete rebroadcast;
         break;
     }
     case SEND_DATA_EVT: {

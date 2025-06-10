@@ -44,3 +44,9 @@ void TraCIDemoRSU11p::onWSM(BaseFrame1609_4* frame)
     sendDelayedDown(wsm->dup(), 2 + uniform(0.01, 0.2));
     delete wsm;
 }
+
+void TraCIDemoRSU11p::onBSM(DemoSafetyMessage* bsm)
+{
+    delete bsm;
+}
+

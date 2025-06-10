@@ -228,6 +228,10 @@ protected:
     cMessage* sendBeaconEvt;
     cMessage* sendWSAEvt;
     cMessage* sendDataEvt;
+
+    /** @brief Contador para asignar serial único a cada mensaje generado */
+    int serialCounter = 0;
+
 };
 
 } // namespace veins

@@ -1,6 +1,7 @@
 #include "veins/modules/application/traci/trad/TrADApplLayer.h"
 #include "veins/base/utils/SimpleAddress.h"  // para LAddress::L2Type
 #include "veins/base/utils/Coord.h"          // para Coord
+#include "veins/modules/application/ieee80211p/DemoBaseApplLayer.h"
 #include <vector>
 #include <set>
 #include <map>
@@ -166,15 +167,20 @@ void TrADApplLayer::populateWSM(BaseFrame1609_4* wsm, LAddress::L2Type rcvId, in
     wsm->setBitLength(headerLength);
 
     if (DemoSafetyMessage* bsm = dynamic_cast<DemoSafetyMessage*>(wsm)) {
-        // Posicion y velocidad actual
-        bsm->setSenderPos(applyGpsDrift(curPosition));
-        bsm->setSenderSpeed(curSpeed);
-
         // Genera un ID único por beacon: combina ID del nodo y contador local
         static uint32_t beaconCounter = 0;
         if (beaconCounter > 99999) beaconCounter = 0;  // reinicio seguro si se excede
         int beaconId = static_cast<int>(myId * 100000 + beaconCounter++);
         bsm->setBeaconId(beaconId);
+
+        bsm->setSerial(serial);
+        EV_INFO << "[TrAD] Nodo " << myId << " asigna serial=" << serial
+        << " al beaconId=" << bsm->getBeaconId() << "\n";
+
+        // Posicion y velocidad actual
+        bsm->setSenderPos(applyGpsDrift(curPosition));
+        bsm->setSenderSpeed(curSpeed);
+
 
         // Direccion en grados (heading)
         double heading = atan2(curSpeed.y, curSpeed.x) * 180.0 / M_PI;
@@ -269,6 +275,7 @@ void TrADApplLayer::handleParkingUpdate(cObject* obj)
 
 void TrADApplLayer::handleLowerMsg(cMessage* msg)
 {
+    EV_INFO << "[TrAD] handleLowerMsg ejecutado en nodo " << myId << " para msg tipo " << msg->getClassName() << "\n";
 
     BaseFrame1609_4* wsm = dynamic_cast<BaseFrame1609_4*>(msg);
     ASSERT(wsm);
@@ -301,6 +308,7 @@ void TrADApplLayer::handleLowerMsg(cMessage* msg)
         onWSA(wsa);
     }
     else {
+        EV_INFO << "[TrAD] Nodo " << myId << " recibió mensaje tipo " << msg->getClassName() << " y entra a onWSM\n";
         receivedWSMs++;
         onWSM(wsm);
     }
@@ -312,12 +320,11 @@ void TrADApplLayer::handleSelfMsg(cMessage* msg)
 {
     switch (msg->getKind()) {
     case SEND_BEACON_EVT: {
-        purgeOldNeighbors();  // limpiar vecinos antes de generar beacon nuevo
+        purgeOldNeighbors();
 
         DemoSafetyMessage* bsm = new DemoSafetyMessage();
-        populateWSM(bsm);
+        populateWSM(bsm, -1, serialCounter++);
 
-        // Clasificacion direccional
         auto clusters = classifyDirectionalClusters();
         EV_INFO << "[TrAD] Nodo " << myId << " clasifico " << clusters.size() << " clusters direccionales\n";
 
@@ -327,7 +334,7 @@ void TrADApplLayer::handleSelfMsg(cMessage* msg)
     }
     case SEND_WSA_EVT: {
         DemoServiceAdvertisment* wsa = new DemoServiceAdvertisment();
-        populateWSM(wsa);
+        populateWSM(wsa, -1, serialCounter++);
         sendDown(wsa);
         scheduleAt(simTime() + wsaInterval, sendWSAEvt);
         break;
@@ -335,46 +342,44 @@ void TrADApplLayer::handleSelfMsg(cMessage* msg)
     case SEND_REBROADCAST_EVT: {
         DemoSafetyMessage* rebroadcast = check_and_cast<DemoSafetyMessage*>(msg);
         int beaconId = rebroadcast->getBeaconId();
-    
-        // Si este nodo ya retransmitió este beacon, cancelar
+
         if (rebroadcastsByBeaconId[beaconId].count(myId)) {
             EV_INFO << "[TrAD] Nodo " << myId << " ya retransmitió beaconId " << beaconId << ". Cancela retransmisión.\n";
             delete rebroadcast;
             break;
         }
-    
-        // Registra que este nodo retransmite
+
         rebroadcastsByBeaconId[beaconId].insert(myId);
-    
-        // Construye messageList[] con todos los que ya retransmitieron este beacon
+
         const auto& rebroadcasters = rebroadcastsByBeaconId[beaconId];
         rebroadcast->setMessageListArraySize(rebroadcasters.size());
-    
+
         int idx = 0;
         for (const auto& id : rebroadcasters) {
             rebroadcast->setMessageList(idx++, id);
         }
-    
+
         EV_INFO << "[TrAD] Nodo " << myId << " retransmite beaconId " << beaconId
                 << " incluyendo messageList[] con " << rebroadcasters.size() << " nodos\n";
-    
+
         sendDown(rebroadcast);
-        delete rebroadcast;
         break;
     }
     case SEND_DATA_EVT: {
         if (isScfAgent() || isSourceNode) {
-            DemoSafetyMessage* wsm = new DemoSafetyMessage();
-            populateWSM(wsm);
+            DemoSafetyMessage* wsm = new DemoSafetyMessage("dataWSM");
+            populateWSM(wsm, -1, serialCounter++);
     
             int beaconId = wsm->getBeaconId();
     
-            // Solo el nodo origen guarda el tiempo de emisión
             if (isSourceNode) {
                 beaconSentTimeMap[beaconId] = simTime();
-                beaconSentPosMap[beaconId] = curPosition;  // guardar la posicion del emisor
+                beaconSentPosMap[beaconId] = curPosition;
                 EV_INFO << "[TrAD] Nodo " << myId << " es ORIGEN y registra tiempo de envío para beaconId " << beaconId << " en t=" << simTime() << "\n";
             }
+    
+            // Importante: Marca este WSM como tipo de aplicación (no beacon)
+            wsm->setKind(SEND_DATA_EVT);  // ←←← esto lo diferencia del BSM
     
             sendDown(wsm);
             generatedWSMs++;
@@ -477,6 +482,12 @@ TrADApplLayer::~TrADApplLayer()
     cancelAndDelete(sendBeaconEvt);
     cancelAndDelete(sendWSAEvt);
     cancelAndDelete(sendDataEvt);
+
+    for (auto& entry : neighborTable) {
+        delete entry.second;
+    }
+    neighborTable.clear();
+
     findHost()->unsubscribe(BaseMobility::mobilityStateChangedSignal, this);
 }
 
@@ -525,7 +536,7 @@ void TrADApplLayer::checkAndTrackPacket(cMessage* msg)
     }
     else if (dynamic_cast<BaseFrame1609_4*>(msg)) {
         EV_TRACE << "sending down a wsm" << std::endl;
-        generatedWSMs++;
+        // generatedWSMs++; // generadoWSMs ya se incrementa manualmente al enviar, no aquí
     }
 }
 
@@ -536,7 +547,11 @@ void TrADApplLayer::onBSM(DemoSafetyMessage* bsm) {
     if (neighborTable.find(senderId) != neighborTable.end()) {
         delete neighborTable[senderId];  // borra beacon viejo
     }
-    neighborTable[senderId] = bsm->dup();  // guarda copia nueva con tiempo actual
+    
+    DemoSafetyMessage* copy = bsm->dup();
+    copy->setTimestamp(simTime());  // Marca el tiempo de recepción
+    neighborTable[senderId] = copy;
+
 
     EV_INFO << "[TrAD] Nodo " << myId
             << " recibio beacon de " << senderId
@@ -628,6 +643,8 @@ void TrADApplLayer::onBSM(DemoSafetyMessage* bsm) {
 }
 
 void TrADApplLayer::onWSM(BaseFrame1609_4* wsm) {
+    EV_INFO << "[TrAD] onWSM ejecutado en nodo " << myId << " para beaconId = "
+    << dynamic_cast<DemoSafetyMessage*>(wsm)->getBeaconId() << "\n";
     DemoSafetyMessage* data = dynamic_cast<DemoSafetyMessage*>(wsm);
     if (!data) return;
 
@@ -636,6 +653,7 @@ void TrADApplLayer::onWSM(BaseFrame1609_4* wsm) {
     // Si ya fue recibido, ignorar
     if (receivedMessageIds.count(beaconId)) {
         EV_INFO << "[TrAD] Nodo " << myId << " ya recibio WSM con beaconId " << beaconId << ". Ignorado.\n";
+        delete data;  // liberar memoria
         return;
     }
 
@@ -649,7 +667,7 @@ void TrADApplLayer::onWSM(BaseFrame1609_4* wsm) {
         lastReceptionPosMap[beaconId] = curPosition;  // guarda posicion del ultimo receptor
     }
 
-    // Medir delay si se conoce el tiempo de envío
+    // Medir delay si se conoce el tiempo de envio
     if (beaconSentTimeMap.count(beaconId)) {
         simtime_t sent = beaconSentTimeMap[beaconId];
         simtime_t delay = simTime() - sent;
@@ -665,6 +683,13 @@ void TrADApplLayer::onWSM(BaseFrame1609_4* wsm) {
 
     // Reenviar inmediatamente
     DemoSafetyMessage* copy = data->dup();
+
+    // Verificación adicional de seguridad
+    if (!copy) {
+        EV_ERROR << "[TrAD] ERROR: El mensaje a reenviar es nulo. beaconId=" << beaconId << "\n";
+        return;
+    }
+
     copy->setKind(SEND_DATA_EVT);
     sendDown(copy);
     EV_INFO << "[TrAD] Nodo " << myId << " reenvio WSM beaconId " << beaconId << "\n";

@@ -14,4 +14,5 @@ packet DemoSafetyMessage extends BaseFrame1609_4 {
     int priorityList[];      // Lista de nodos ordenados por prioridad UTX
     int messageList[];       // Lista de IDs de mensajes almacenados por el nodo
     int scfAgents[];         // SCF-agents: coordinators y breakers
+    int serial;  // identificador local incremental
 }

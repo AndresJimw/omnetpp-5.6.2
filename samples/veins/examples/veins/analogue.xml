@@ -1,0 +1,5 @@
+<AnalogueModels>
+    <AnalogueModel type="SimplePathlossModel" thresholding="true">
+        <parameter name="alpha" type="double" value="2.0"/>
+    </AnalogueModel>
+</AnalogueModels>

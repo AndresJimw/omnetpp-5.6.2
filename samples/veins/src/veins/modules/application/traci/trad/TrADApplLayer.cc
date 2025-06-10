@@ -167,6 +167,12 @@ void TrADApplLayer::populateWSM(BaseFrame1609_4* wsm, LAddress::L2Type rcvId, in
     wsm->setBitLength(headerLength);
 
     if (DemoSafetyMessage* bsm = dynamic_cast<DemoSafetyMessage*>(wsm)) {
+        // --- CLAVE: establecer tipo de mensaje ---
+        if (wsm->getName() && std::string(wsm->getName()).find("dataWSM") != std::string::npos)
+            bsm->setKind(SEND_DATA_EVT);  // Es un mensaje de datos
+        else
+            bsm->setKind(SEND_BEACON_EVT);  // Es un beacon
+
         // Genera un ID único por beacon: combina ID del nodo y contador local
         static uint32_t beaconCounter = 0;
         if (beaconCounter > 99999) beaconCounter = 0;  // reinicio seguro si se excede
@@ -250,72 +256,6 @@ void TrADApplLayer::populateWSM(BaseFrame1609_4* wsm, LAddress::L2Type rcvId, in
     }
 }
 
-void TrADApplLayer::receiveSignal(cComponent* source, simsignal_t signalID, cObject* obj, cObject* details)
-{
-    Enter_Method_Silent();
-    if (signalID == BaseMobility::mobilityStateChangedSignal) {
-        handlePositionUpdate(obj);
-    }
-    else if (signalID == TraCIMobility::parkingStateChangedSignal) {
-        handleParkingUpdate(obj);
-    }
-}
-
-void TrADApplLayer::handlePositionUpdate(cObject* obj)
-{
-    ChannelMobilityPtrType const mobility = check_and_cast<ChannelMobilityPtrType>(obj);
-    curPosition = mobility->getPositionAt(simTime());
-    curSpeed = mobility->getCurrentSpeed();
-}
-
-void TrADApplLayer::handleParkingUpdate(cObject* obj)
-{
-    isParked = mobility->getParkingState();
-}
-
-void TrADApplLayer::handleLowerMsg(cMessage* msg)
-{
-    EV_INFO << "[TrAD] handleLowerMsg ejecutado en nodo " << myId << " para msg tipo " << msg->getClassName() << "\n";
-
-    BaseFrame1609_4* wsm = dynamic_cast<BaseFrame1609_4*>(msg);
-    ASSERT(wsm);
-
-    // Acumula tiempo ocupado para calcular CBR
-    if (simTime() - cbrWindowStart >= cbrWindowLength) {
-        channelBusyRatio = busyTime / cbrWindowLength.dbl();
-        busyTime = 0.0;
-        cbrWindowStart = simTime();
-
-        // Acumula para calcular CBR promedio global
-        totalCbrSamples += channelBusyRatio;
-        cbrSampleCount++;
-
-        if (channelBusyRatio > maxCbrObserved)
-            maxCbrObserved = channelBusyRatio;
-    }
-
-    if (BITRATE > 0) {
-        simtime_t duration = wsm->getBitLength() / BITRATE;
-        busyTime += duration.dbl();
-    }
-
-    if (DemoSafetyMessage* bsm = dynamic_cast<DemoSafetyMessage*>(wsm)) {
-        receivedBSMs++;
-        onBSM(bsm);
-    }
-    else if (DemoServiceAdvertisment* wsa = dynamic_cast<DemoServiceAdvertisment*>(wsm)) {
-        receivedWSAs++;
-        onWSA(wsa);
-    }
-    else {
-        EV_INFO << "[TrAD] Nodo " << myId << " recibió mensaje tipo " << msg->getClassName() << " y entra a onWSM\n";
-        receivedWSMs++;
-        onWSM(wsm);
-    }
-
-    delete (msg);
-}
-
 void TrADApplLayer::handleSelfMsg(cMessage* msg)
 {
     switch (msg->getKind()) {
@@ -368,6 +308,10 @@ void TrADApplLayer::handleSelfMsg(cMessage* msg)
     case SEND_DATA_EVT: {
         if (isScfAgent() || isSourceNode) {
             DemoSafetyMessage* wsm = new DemoSafetyMessage("dataWSM");
+    
+            // No establecer kind explícitamente (igual que en los beacons)
+            wsm->setKind(SEND_DATA_EVT);
+    
             populateWSM(wsm, -1, serialCounter++);
     
             int beaconId = wsm->getBeaconId();
@@ -377,9 +321,6 @@ void TrADApplLayer::handleSelfMsg(cMessage* msg)
                 beaconSentPosMap[beaconId] = curPosition;
                 EV_INFO << "[TrAD] Nodo " << myId << " es ORIGEN y registra tiempo de envío para beaconId " << beaconId << " en t=" << simTime() << "\n";
             }
-    
-            // Importante: Marca este WSM como tipo de aplicación (no beacon)
-            wsm->setKind(SEND_DATA_EVT);  // ←←← esto lo diferencia del BSM
     
             sendDown(wsm);
             generatedWSMs++;
@@ -395,6 +336,78 @@ void TrADApplLayer::handleSelfMsg(cMessage* msg)
     }
     }
 }
+
+void TrADApplLayer::receiveSignal(cComponent* source, simsignal_t signalID, cObject* obj, cObject* details)
+{
+    Enter_Method_Silent();
+    if (signalID == BaseMobility::mobilityStateChangedSignal) {
+        handlePositionUpdate(obj);
+    }
+    else if (signalID == TraCIMobility::parkingStateChangedSignal) {
+        handleParkingUpdate(obj);
+    }
+}
+
+void TrADApplLayer::handlePositionUpdate(cObject* obj)
+{
+    ChannelMobilityPtrType const mobility = check_and_cast<ChannelMobilityPtrType>(obj);
+    curPosition = mobility->getPositionAt(simTime());
+    curSpeed = mobility->getCurrentSpeed();
+}
+
+void TrADApplLayer::handleParkingUpdate(cObject* obj)
+{
+    isParked = mobility->getParkingState();
+}
+
+void TrADApplLayer::handleLowerMsg(cMessage* msg)
+{
+    EV_INFO << "[TrAD] handleLowerMsg ejecutado en nodo " << myId << " para msg tipo " << msg->getClassName() << "\n";
+
+    BaseFrame1609_4* wsm = dynamic_cast<BaseFrame1609_4*>(msg);
+    ASSERT(wsm);
+
+    // Acumula tiempo ocupado para calcular CBR
+    if (simTime() - cbrWindowStart >= cbrWindowLength) {
+        channelBusyRatio = busyTime / cbrWindowLength.dbl();
+        busyTime = 0.0;
+        cbrWindowStart = simTime();
+
+        // Acumula para calcular CBR promedio global
+        totalCbrSamples += channelBusyRatio;
+        cbrSampleCount++;
+
+        if (channelBusyRatio > maxCbrObserved)
+            maxCbrObserved = channelBusyRatio;
+    }
+
+    if (BITRATE > 0) {
+        simtime_t duration = wsm->getBitLength() / BITRATE;
+        busyTime += duration.dbl();
+    }
+
+    if (DemoSafetyMessage* bsm = dynamic_cast<DemoSafetyMessage*>(wsm)) {
+        EV_INFO << "[TrAD] Nodo " << myId << " recibio DemoSafetyMessage con kind = " << bsm->getKind() << "\n";    
+        if (bsm->getKind() == SEND_DATA_EVT) {
+            receivedWSMs++;
+            onWSM(bsm);
+        }
+        else {
+            receivedBSMs++;
+            onBSM(bsm);
+        }
+    }
+    else if (DemoServiceAdvertisment* wsa = dynamic_cast<DemoServiceAdvertisment*>(wsm)) {
+        receivedWSAs++;
+        onWSA(wsa);
+    }
+    else {
+        EV_WARN << "[TrAD] Nodo " << myId << " recibió mensaje tipo desconocido: " << msg->getClassName() << "\n";
+    }    
+
+    delete (msg);
+}
+
 
 void TrADApplLayer::finish()
 {
@@ -643,9 +656,7 @@ void TrADApplLayer::onBSM(DemoSafetyMessage* bsm) {
 }
 
 void TrADApplLayer::onWSM(BaseFrame1609_4* wsm) {
-    EV_INFO << "[TrAD] onWSM ejecutado en nodo " << myId << " para beaconId = "
-    << dynamic_cast<DemoSafetyMessage*>(wsm)->getBeaconId() << "\n";
-    DemoSafetyMessage* data = dynamic_cast<DemoSafetyMessage*>(wsm);
+    DemoSafetyMessage* data = check_and_cast<DemoSafetyMessage*>(wsm);
     if (!data) return;
 
     int beaconId = data->getBeaconId();
@@ -653,7 +664,6 @@ void TrADApplLayer::onWSM(BaseFrame1609_4* wsm) {
     // Si ya fue recibido, ignorar
     if (receivedMessageIds.count(beaconId)) {
         EV_INFO << "[TrAD] Nodo " << myId << " ya recibio WSM con beaconId " << beaconId << ". Ignorado.\n";
-        delete data;  // liberar memoria
         return;
     }
 
